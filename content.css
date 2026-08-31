@@ -1,0 +1,38 @@
+/* The badge sits on top of Netflix's own artwork, so everything here is
+   defensive: high z-index, no pointer events (never steal a click from
+   Netflix's hover preview), and a dark plate so it stays readable over
+   whatever the poster happens to look like. */
+
+.nrx-host {
+  position: relative;
+}
+
+.nrx-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 5;
+
+  padding: 2px 7px;
+  border-radius: 4px;
+
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+
+  background: rgba(0, 0, 0, 0.82);
+  box-shadow: inset 0 0 0 1px currentColor;
+
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Colour is the whole point: you should be able to scan a row without
+   reading a single number. */
+.nrx-badge[data-tier="high"]    { color: #46d369; }  /* worth it */
+.nrx-badge[data-tier="mid"]     { color: #e5a00d; }  /* maybe */
+.nrx-badge[data-tier="low"]     { color: #e87c78; }  /* skip */
+.nrx-badge[data-tier="unknown"] { color: #8c8c8c; }  /* no rating found */
