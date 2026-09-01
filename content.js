@@ -22,7 +22,8 @@ const CARD_SELECTORS = [
 // mutable because a settings change re-colours badges in place — no refetch.
 let thresholds = { ...RAG_DEFAULTS };
 
-let warnedAboutKey = false;
+let announcedImport = false;
+let retryTimer = null;
 
 // --- reading a title off a card ------------------------------------------
 // A card is an anchor carrying the title in its own aria-label:
@@ -98,9 +99,17 @@ function renderBadge(host, result) {
     badge.dataset.rating = result.rating;
     badge.dataset.tier = tierFor(result.rating);
     badge.textContent = result.rating;
-    badge.title = result.votes
-      ? `IMDb ${result.rating} · ${result.votes} votes${result.year ? ` · ${result.year}` : ""}`
-      : `IMDb ${result.rating}`;
+
+    // Netflix's label and IMDb's title often differ ("Laapataa Ladies" is
+    // filed as "Lost Ladies"), and the match is occasionally wrong. Naming the
+    // matched title makes a bad match visible instead of silent.
+    const parts = [`IMDb ${result.rating}`];
+    if (result.votes) parts.push(`${result.votes.toLocaleString()} votes`);
+    if (result.year) parts.push(String(result.year));
+    const detail = parts.join(" · ");
+    badge.title = result.exact === false && result.label
+      ? `${detail}\nmatched as "${result.label}"`
+      : detail;
   }
 
   host.classList.add("nrx-host");
@@ -127,17 +136,20 @@ async function process(card) {
   if (!result) return;
 
   if (result.error) {
-    if (result.error === "no-key" && !warnedAboutKey) {
-      warnedAboutKey = true;
+    // "importing" means the IMDb ratings dataset is still being pulled in on
+    // first run. That takes a minute or so once, ever — so rather than leaving
+    // the page permanently blank, release the card and rescan shortly.
+    if (result.error === "importing" && !announcedImport) {
+      announcedImport = true;
       console.info(
-        "[IMDb for Netflix] No API key set yet — click the extension icon and paste your free OMDb key."
+        "[IMDb for Netflix] Importing the IMDb ratings dataset — badges appear as soon as it finishes."
       );
     }
-    if (result.error === "bad-key" && !warnedAboutKey) {
-      warnedAboutKey = true;
-      console.warn("[IMDb for Netflix] OMDb rejected that API key.");
+    delete card.dataset.nrxDone;
+    delete card.dataset.nrxSeen;
+    if (!retryTimer) {
+      retryTimer = setTimeout(() => { retryTimer = null; scan(); }, 5000);
     }
-    delete card.dataset.nrxDone; // let it retry once the key is fixed
     return;
   }
 

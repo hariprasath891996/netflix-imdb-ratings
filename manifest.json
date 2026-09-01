@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "IMDb Ratings for Netflix",
-  "version": "0.1.0",
-  "description": "Shows IMDb ratings on Netflix title cards, so you can pick something without leaving the page.",
+  "version": "0.2.0",
+  "description": "Shows IMDb ratings on Netflix title cards, colour-coded, with no API key required.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "https://www.omdbapi.com/*"
+    "https://datasets.imdbws.com/*",
+    "https://v2.sg.media-imdb.com/*"
   ],
   "background": {
     "service_worker": "background.js"

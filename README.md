@@ -4,6 +4,9 @@ Netflix doesn't show you IMDb ratings, so choosing something means opening a
 second tab for every title that looks vaguely interesting. This is a small
 Chrome extension that puts the rating straight onto the card.
 
+**No API key, no account, no server.** Ratings come from IMDb's own published
+dataset, downloaded to your machine and refreshed once on each day you use it.
+
 Ratings are colour-coded so you can scan a row without reading the numbers:
 
 | Badge | Default |
@@ -19,42 +22,80 @@ the colour mapping changes, so nothing is looked up again.
 
 ## Install
 
-This isn't on the Chrome Web Store — you load it directly from the folder.
+1. Clone or download this repository.
+2. Open `chrome://extensions` in Chrome.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked** and select this folder.
+5. Open Netflix.
 
-1. **Get a free OMDb API key** at [omdbapi.com/apikey.aspx](https://www.omdbapi.com/apikey.aspx).
-   Pick the free tier (1,000 lookups a day) and confirm the activation email.
-2. Clone or download this repository.
-3. Open `chrome://extensions` in Chrome.
-4. Turn on **Developer mode** (top right).
-5. Click **Load unpacked** and select this folder.
-6. Click the extension's icon in the toolbar, paste your API key, hit **Save**.
-7. Open Netflix and reload the page.
+On first run it imports IMDb's ratings dataset — about 8 MB, roughly a minute.
+Badges appear as soon as it finishes. There's nothing to sign up for.
 
 ## How it works
 
-Three files do the work:
+Two data sources, split by what each is good at.
 
-- **`content.js`** runs inside the Netflix page. Netflix builds title cards
-  lazily as you scroll, so it uses a `MutationObserver` to notice new cards and
-  an `IntersectionObserver` to hold each lookup until the card is actually on
-  screen — scrolling past three rows shouldn't spend quota on thirty. Titles
-  come from each card's own `aria-label`, not from a child element.
-- **`background.js`** is the service worker. It makes the OMDb call, caches
-  every result for 30 days, and dedupes in-flight requests so one title
-  appearing on five rows is still one network call.
+**Ratings — no network call at all.** IMDb publishes every rated title as a
+[bulk dataset](https://datasets.imdbws.com/): 1.7 million rows, ~8 MB gzipped,
+regenerated daily. It's imported once into IndexedDB, after which looking up a
+rating is a local read. Nothing can beat that for speed, and it means the
+extension is not scraping ratings at all.
+
+**Title → IMDb id — one small call, once per title, ever.** The dataset is
+keyed by IMDb id, and Netflix only gives us a display name — which frequently
+isn't IMDb's title:
+
+| Netflix's label | IMDb's title |
+| --- | --- |
+| Laapataa Ladies | Lost Ladies |
+| My Liberation Notes | My Liberation Diary |
+| Hello, My Twenties! | Age of Youth |
+| Misaeng: Incomplete Life | Misaeng |
+| Couple on the Backtrack | Go Back Couple |
+
+IMDb's suggestion endpoint resolves these in about a kilobyte of JSON. The
+result is cached permanently, so each title costs one lookup once and never
+again.
+
+Choosing between suggestions is where accuracy is won or lost. IMDb ranks
+upcoming releases highly, so searching "Youth" returns the unreleased 2026
+entry above the rated 2015 one. Because the ratings index is local, the
+extension checks whether a candidate is actually rated *while* picking, at no
+network cost. Exactness still wins first: a rated film with the wrong name is a
+worse answer than an unrated one with the right name.
+
+### The files
+
+- **`content.js`** runs inside the Netflix page. Netflix builds cards lazily as
+  you scroll, so a `MutationObserver` notices new ones and an
+  `IntersectionObserver` holds each lookup until the card is actually on screen.
+  Titles come from each card's own `aria-label`, not from a child element.
+- **`background.js`** owns both data sources, the IndexedDB stores, and the
+  daily refresh.
 - **`defaults.js`** holds the default thresholds, shared by the content script
   and the settings page so the numbers are defined in one place.
 - **`content.css`** styles the badge. It sits top-right on purpose: Netflix
   uses the top-left corner for its TOP 10 ribbon and the bottom-left for
   "New Season" / "Recently added" tags.
+- **`preview.html`** is a local harness for eyeballing the badge without
+  loading the extension. Not part of the extension itself.
 
-The API call lives in the background worker rather than the content script for
-two reasons: the page's CORS rules don't apply out there, and the API key never
-enters a context Netflix's own JavaScript can read.
+## Coverage
+
+Measured against 430 real titles from an Indian Netflix homepage, a catalogue
+heavy in Korean drama, Tamil and Telugu cinema, and anime:
+
+| | Titles | Share |
+| --- | ---: | ---: |
+| Has an IMDb rating | 425 | **98.8%** |
+| No rating found | 5 | 1.2% |
+
+24 of those 425 matched an IMDb entry under a different name.
+
+For comparison, the same 430 titles through the OMDb API returned 86%. The gap
+was mostly not missing data — it was alias resolution.
 
 ## Known limitations
-
-Worth being upfront about these:
 
 - **Netflix's HTML is not a contract.** Cards are found via `data-uia`
   attributes (`standard-card`, `ranked-card`, `progress-card`), which are
@@ -62,18 +103,15 @@ Worth being upfront about these:
   which are CSS-in-JS hashes that change every deploy. Still, they're free to
   rename them. If badges silently stop appearing, that's almost always why, and
   the fix is `CARD_SELECTORS` and `titleFromCard()` in `content.js`.
-- **Titles are matched by name only**, with no year, because Netflix cards
-  don't display one. Remakes and common titles can therefore match the wrong
-  film. "Clear cache" in the settings forces a fresh lookup.
-- **Coverage is about 87%** on a real Indian Netflix homepage (measured over
-  430 titles). What's missing is mostly unreleased or promotional entries that
-  have no rating anywhere, plus Korean, Tamil and Telugu titles where OMDb's
-  index is thin. Netflix's label is also normalised before lookup — curly
-  apostrophes flattened, and a trailing "(U.S.)" or "(2011)" retried without
-  it, which alone recovered five titles.
-- **1,000 lookups a day** on OMDb's free tier. The 30-day cache means normal
-  browsing stays well under it, but a first run on a fresh install eats a few
-  hundred.
+- **Matching is by name, without a year**, because Netflix cards don't display
+  one. Remakes and sequels can resolve to the wrong entry — "Welcome to Waikiki
+  2" matches season 1. The badge tooltip names the matched IMDb title and year
+  precisely so a bad match is visible rather than silent, and **Clear matches**
+  in the settings forces a fresh resolution.
+- **The suggestion endpoint is undocumented.** It's the public JSON that powers
+  IMDb's own search box, not a supported API, and could change without notice.
+- **Some titles have no rating anywhere.** Trailers and unreleased films
+  genuinely have nothing to show, and grey is the honest answer there.
 - **Chrome only.** It's Manifest V3, so Firefox would need small changes.
 
 ## Ideas for later
@@ -81,7 +119,7 @@ Worth being upfront about these:
 - Make the badge a link through to the IMDb page
 - Show the rating in the hover preview modal too, not just the card
 - A minimum-rating filter that dims everything below your threshold
-- Rotten Tomatoes score alongside IMDb (OMDb returns it in the same response)
+- Use vote counts to flag a 9.2 from 400 votes differently from one with 800,000
 
 ## Licence
 

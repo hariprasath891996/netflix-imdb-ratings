@@ -1,35 +1,69 @@
 // Chrome extensions disallow inline <script>, so the page's behaviour lives
 // here in its own file.
 
-const keyInput = document.getElementById("key");
 const status = document.getElementById("status");
 
 function say(message, kind = "ok") {
   status.textContent = message;
   status.dataset.kind = kind;
-  setTimeout(() => { status.textContent = ""; }, 2500);
+  setTimeout(() => { status.textContent = ""; }, 3000);
 }
 
-// Prefill whatever is already saved.
-chrome.storage.local.get("apiKey").then(({ apiKey }) => {
-  if (apiKey) keyInput.value = apiKey;
-});
+// --- ratings dataset ------------------------------------------------------
+const dataState = document.getElementById("dataState");
+const dataText = document.getElementById("dataText");
+const refreshButton = document.getElementById("refresh");
 
-document.getElementById("save").addEventListener("click", async () => {
-  const apiKey = keyInput.value.trim();
-  if (!apiKey) {
-    say("Paste a key first.", "error");
+function ago(ts) {
+  const days = Math.floor((Date.now() - ts) / 86400000);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
+async function paintStatus() {
+  const { importProgress } = await chrome.storage.local.get("importProgress");
+  const info = await chrome.runtime.sendMessage({ type: "status" });
+
+  if (importProgress && importProgress.phase !== "done" && !info.ready) {
+    dataState.dataset.ok = "busy";
+    dataText.textContent = importProgress.phase === "downloading"
+      ? "Downloading IMDb dataset…"
+      : `Importing… ${importProgress.rows.toLocaleString()} titles`;
+    refreshButton.disabled = true;
     return;
   }
-  await chrome.storage.local.set({ apiKey });
-  say("Saved — reload your Netflix tab.");
+
+  refreshButton.disabled = false;
+  if (!info.ready) {
+    dataState.dataset.ok = "no";
+    dataText.textContent = "Not imported yet";
+    return;
+  }
+  dataState.dataset.ok = info.stale ? "busy" : "yes";
+  dataText.textContent =
+    `${info.count.toLocaleString()} rated titles · updated ${ago(info.builtAt)}` +
+    (info.stale ? " · refresh due" : "");
+}
+paintStatus();
+// The import runs in the worker, so poll while this page is open to keep the
+// count moving rather than leaving it looking frozen.
+setInterval(paintStatus, 1500);
+
+refreshButton.addEventListener("click", async () => {
+  refreshButton.disabled = true;
+  say("Importing — this takes a minute.");
+  const result = await chrome.runtime.sendMessage({ type: "import" });
+  if (result?.ok) say(`Imported ${result.rows.toLocaleString()} ratings.`);
+  else say("Import failed — check your connection.", "error");
+  paintStatus();
 });
 
-// Ratings are cached for 30 days. This is the escape hatch for when a title
-// got matched to the wrong film and you want it looked up fresh.
-document.getElementById("clear").addEventListener("click", async () => {
-  const result = await chrome.runtime.sendMessage({ type: "clearCache" });
-  say(`Cleared ${result?.cleared ?? 0} cached ratings.`);
+// Matches are cached permanently, so this is the escape hatch for when a title
+// resolved to the wrong film.
+document.getElementById("clearTitles").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "clearTitleCache" });
+  say("Cleared cached title matches.");
 });
 
 // --- RAG thresholds -------------------------------------------------------

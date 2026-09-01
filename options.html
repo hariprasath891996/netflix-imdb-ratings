@@ -6,7 +6,7 @@
   <style>
     :root { color-scheme: dark; }
     body {
-      width: 320px;
+      width: 330px;
       margin: 0;
       padding: 18px;
       background: #181818;
@@ -14,8 +14,8 @@
       font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
     h1 { margin: 0 0 4px; font-size: 15px; }
+    h2 { margin: 0 0 4px; font-size: 13px; }
     p  { margin: 0 0 14px; color: #a3a3a3; font-size: 12.5px; }
-    a  { color: #7ab8ff; }
     label { display: block; margin-bottom: 6px; font-size: 12px; color: #a3a3a3; }
     input {
       width: 100%;
@@ -30,8 +30,31 @@
     }
     input:focus { outline: none; border-color: #7ab8ff; }
     .row { display: flex; gap: 8px; margin-top: 12px; }
+    button {
+      flex: 1;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 4px;
+      background: #e50914;
+      color: #fff;
+      font: 600 13px/1 inherit;
+      cursor: pointer;
+    }
+    button.secondary { background: #333; color: #ccc; }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { opacity: .5; cursor: default; filter: none; }
     hr { margin: 18px 0 14px; border: 0; border-top: 1px solid #2e2e2e; }
-    h2 { margin: 0 0 4px; font-size: 13px; }
+
+    .state {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 11px; border-radius: 4px; background: #101010;
+      font-size: 12.5px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #8c8c8c; flex: none; }
+    .state[data-ok="yes"] .dot { background: #46d369; }
+    .state[data-ok="busy"] .dot { background: #e5a00d; }
+    .state[data-ok="no"]  .dot { background: #e87c78; }
+
     .thresholds { display: flex; gap: 10px; }
     .thresholds div { flex: 1; }
     .swatch {
@@ -46,39 +69,22 @@
       font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
     }
     .chip.high { color: #46d369; } .chip.mid { color: #e5a00d; }
-    .chip.low { color: #e87c78; }
-    .link { margin-top: 10px; font-size: 12px; }
-    .link a { cursor: pointer; }
-    button {
-      flex: 1;
-      padding: 8px 10px;
-      border: 0;
-      border-radius: 4px;
-      background: #e50914;
-      color: #fff;
-      font: 600 13px/1 inherit;
-      cursor: pointer;
-    }
-    button.secondary { background: #333; color: #ccc; }
-    button:hover { filter: brightness(1.1); }
+    .chip.low  { color: #e87c78; }
     #status { margin-top: 12px; min-height: 18px; font-size: 12.5px; color: #46d369; }
     #status[data-kind="error"] { color: #e87c78; }
   </style>
 </head>
 <body>
   <h1>IMDb Ratings for Netflix</h1>
-  <p>
-    Needs a free OMDb API key —
-    <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noreferrer">get one here</a>
-    (free tier, 1,000 lookups a day).
-  </p>
+  <p>No API key needed — ratings come from IMDb's own published dataset.</p>
 
-  <label for="key">OMDb API key</label>
-  <input id="key" type="text" placeholder="e.g. 1a2b3c4d" spellcheck="false" autocomplete="off">
-
+  <h2>Ratings data</h2>
+  <div class="state" id="dataState" data-ok="no">
+    <span class="dot"></span><span id="dataText">Checking…</span>
+  </div>
   <div class="row">
-    <button id="save">Save</button>
-    <button id="clear" class="secondary">Clear cache</button>
+    <button id="refresh">Refresh dataset</button>
+    <button id="clearTitles" class="secondary">Clear matches</button>
   </div>
 
   <hr>
