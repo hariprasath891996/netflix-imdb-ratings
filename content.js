@@ -1,36 +1,116 @@
-// Runs inside the Netflix page. Finds title cards, asks the background worker
-// for an IMDb rating, and pins a small badge onto each card.
+// Runs inside a streaming site's page. Finds title cards, asks the background
+// worker for an IMDb rating, and pins a small badge onto each card.
 //
-// Netflix is a single-page app that builds cards lazily as you scroll, so there
-// is no single "page is ready" moment to hook. Two observers handle that:
+// Netflix and Prime Video are both single-page apps that build cards lazily as
+// you scroll, so there is no single "page is ready" moment to hook. Two
+// observers handle that:
 //   - a MutationObserver notices cards being added to the DOM
 //   - an IntersectionObserver holds the lookup until a card is actually on
 //     screen, so scrolling past three rows doesn't spend quota on thirty.
 
-// Netflix styles itself with CSS-in-JS, so its class names look like
-// "default-ltr-iqcdef-cache-19c3xp8" and change on every deploy — useless to
-// select on. `data-uia` attributes are Netflix's own test-automation hooks:
-// semantic, and stable because their QA depends on them. Always prefer those.
-const CARD_SELECTORS = [
-  '[data-uia="standard-card"]', // ordinary row cards
-  '[data-uia="ranked-card"]',   // the Top 10 rows
-  '[data-uia="progress-card"]', // Continue Watching
+// --- what differs between sites -------------------------------------------
+// Everything downstream of a title string is already site-agnostic:
+// background.js is handed a name and returns a rating, and never learns who
+// asked. Only three things are actually site-shaped — which elements are
+// cards, which box inside a card the badge hangs off, and whether the site has
+// a hover-preview metadata row to restate the rating in. Confining those to
+// this map is what keeps the rest of the file (the observers, the pipeline,
+// the tooltip, the dim filter) from growing per-site branches.
+const PLATFORMS = {
+  netflix: {
+    hosts: ["netflix.com"],
 
-  // My List and the genre pages are grids, not rows, and build their tiles
-  // from a different component: a static DIV with no aria-label of its own,
-  // where the three above are anchors that carry the title directly. Both
-  // differences are already handled — titleFromCard() falls through to a
-  // descendant [aria-label], and .nrx-host supplies the positioning context
-  // the badge needs. Between them these four are every surface confirmed on
-  // the live site; nothing is listed here on a guess.
-  '[data-uia="title-card-container"]'
-].join(",");
+    // Netflix styles itself with CSS-in-JS, so its class names look like
+    // "default-ltr-iqcdef-cache-19c3xp8" and change on every deploy — useless
+    // to select on. `data-uia` attributes are Netflix's own test-automation
+    // hooks: semantic, and stable because their QA depends on them. Always
+    // prefer those.
+    cards: [
+      '[data-uia="standard-card"]', // ordinary row cards
+      '[data-uia="ranked-card"]',   // the Top 10 rows
+      '[data-uia="progress-card"]', // Continue Watching
 
-// Netflix's hover preview replaces the card with a mini-player, taking our
-// badge with it. This is the metadata row inside that preview ("U/A 13+ ·
-// 5 Seasons · HD"), which is where the rating belongs once you are looking at
-// the expanded state.
-const MODAL_META = '[data-uia="videoMetadata--container"]';
+      // My List and the genre pages are grids, not rows, and build their tiles
+      // from a different component: a static DIV with no aria-label of its own,
+      // where the three above are anchors that carry the title directly. Both
+      // differences are already handled — titleFromCard() falls through to a
+      // descendant [aria-label], and .nrx-host supplies the positioning context
+      // the badge needs. Between them these four are every surface confirmed on
+      // the live site; nothing is listed here on a guess.
+      '[data-uia="title-card-container"]'
+    ],
+
+    // The card element is itself the box that frames the artwork here, so
+    // there is no inner host to look for.
+    badgeHost: null,
+
+    // Netflix draws its TOP 10 ribbon in the top-left corner and its
+    // "New Season" / "Recently added" tags in the bottom-left, so the right
+    // side is the only one that stays clear. Prime is the mirror of this.
+    badgeCorner: "right",
+
+    // Netflix's hover preview replaces the card with a mini-player, taking our
+    // badge with it. This is the metadata row inside that preview ("U/A 13+ ·
+    // 5 Seasons · HD"), which is where the rating belongs once you are looking
+    // at the expanded state.
+    modalMeta: '[data-uia="videoMetadata--container"]'
+  },
+
+  prime: {
+    // primevideo.com is the only domain this was measured on, signed in and
+    // live. The amazon.* entries are here on the reasonable expectation that
+    // /gp/video serves the same web app under a different host — if the badges
+    // never appear there, that expectation is what was wrong, and dropping the
+    // patterns from the manifest is the whole fix.
+    hosts: ["primevideo.com", "amazon.in", "amazon.com"],
+
+    // data-testid is Amazon's test hook, the same kind of contract as
+    // Netflix's data-uia and chosen for the same reason. Only what was
+    // actually measured on the live page is here: the markup also carries
+    // super-carousel-card and poster-link, but neither was verified, and a
+    // selector nobody has watched match is a liability rather than extra
+    // coverage.
+    cards: ['[data-testid="card"]'],
+
+    // The card is an <article> around the packshot, and the packshot is the
+    // box that actually frames the artwork — so the badge hangs off that
+    // rather than off whatever else the article encloses. It is already
+    // position:relative, so .nrx-host asks nothing of it.
+    badgeHost: '[data-testid="packshot"]',
+
+    // Prime's own ribbons — "NEW MOVIE", "TRENDING" — sit in the TOP-RIGHT of a
+    // tile, exactly where Netflix leaves room. Measured on the live site: the
+    // badge collided with them there, and the top-left is clear. Same badge,
+    // opposite corner.
+    badgeCorner: "left",
+
+    // Prime has no equivalent of Netflix's preview metadata row, and the chip
+    // is only meaningful sitting in a row that already reads "18+ · 2 Seasons
+    // · HD". Nothing to render into means nothing rendered.
+    modalMeta: null
+  }
+};
+
+function platformFor(hostname) {
+  for (const config of Object.values(PLATFORMS)) {
+    if (config.hosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) {
+      return config;
+    }
+  }
+  return null;
+}
+
+// The manifest injects this file only on the domains named above, so this can
+// only miss if a match pattern is added without a config to go with it.
+// Failing here is deliberate: falling back to Netflix's selectors would badge
+// nothing at all while still looking like a healthy extension.
+const platform = platformFor(location.hostname);
+if (!platform) {
+  throw new Error(`[IMDb badges] No platform config for ${location.hostname}`);
+}
+
+const CARD_SELECTORS = platform.cards.join(",");
+const MODAL_META = platform.modalMeta;
 
 // Below this many votes a rating is thin evidence. Measured against 430 real
 // titles: only ~3% fall under 1,000, so this flags the genuinely shaky ones
@@ -52,13 +132,18 @@ let announcedImport = false;
 let retryTimer = null;
 
 // --- reading a title off a card ------------------------------------------
-// A row card is an anchor carrying the title in its own aria-label:
+// A Netflix row card is an anchor carrying the title in its own aria-label:
 //   <a href="/browse?jbv=70155590" aria-label="The Mentalist" data-uia="standard-card">
 // So check the element's own attribute before searching inside it. A grid tile
 // (My List, genre pages) is the other shape: an unlabelled DIV wrapping an
 // <a aria-label="Tenet">, which is what the descendant lookup is for. The
 // <img> alt is empty on current Netflix, but it is kept as a fallback in case
 // that changes.
+//
+// Prime Video is the second shape again — an <article> whose title sits on a
+// descendant [aria-label] — so it needs no branch of its own here. That is why
+// the platform config carries no title rule: there is nothing to vary yet, and
+// a hook with one implementation is just indirection.
 function titleFromCard(card) {
   const own = card.getAttribute("aria-label");
   if (own && own.trim()) return clean(own);
@@ -88,13 +173,20 @@ function clean(raw) {
     .trim();
 }
 
-// The badge is absolutely positioned, so it needs a positioned ancestor. The
-// card element itself is the right box; .nrx-host in the stylesheet gives it
-// position:relative when it doesn't already have one. That matters most for
-// the grid tiles, which are position:static — without .nrx-host the badge
-// would escape to whatever ancestor Netflix happened to position.
+// The badge is absolutely positioned, so it needs a positioned ancestor that
+// frames the artwork and nothing else. On Netflix the card element is already
+// that box; where a platform names an inner one (Prime's packshot) the badge
+// belongs there instead, or it would be pinned to the corner of whatever the
+// card wraps rather than to the poster. .nrx-host in the stylesheet supplies
+// position:relative when the chosen box doesn't already have it — which is
+// what Netflix's position:static grid tiles need, and what stops the badge
+// escaping to some far ancestor.
+//
+// Falling back to the card when the inner box is missing keeps a badge on
+// screen if the site renames it: worse placement beats no rating.
 function hostFor(card) {
-  return card;
+  if (!platform.badgeHost) return card;
+  return card.querySelector(platform.badgeHost) || card;
 }
 
 // 2,284,119 -> "2.3M". The modal has room for a vote count, and showing it
@@ -311,12 +403,17 @@ function renderBadge(host, result) {
   badge.addEventListener("mouseenter", () => showTip(badge));
   badge.addEventListener("mouseleave", hideTip);
 
+  badge.dataset.corner = platform.badgeCorner;
   host.classList.add("nrx-host");
   host.appendChild(badge);
 
   // A card that renders while the filter is already on should not wait for
-  // the next settings change to be dimmed.
-  applyDim(host, badge.dataset.rating);
+  // the next settings change to be dimmed. Dimming the card rather than the
+  // host matters where the two differ (Prime badges an inner box): the point
+  // is to push the whole tile back, and recolourAll() reaches for the card the
+  // same way, so the two passes can never disagree about which element carries
+  // the class.
+  applyDim(host.closest(CARD_SELECTORS) || host, badge.dataset.rating);
 }
 
 // --- the hover preview ----------------------------------------------------
@@ -448,8 +545,13 @@ function scan(root = document) {
   }
 
   // A preview modal only exists while it is being looked at, so there is
-  // nothing to defer — resolve it straight away.
-  for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
+  // nothing to defer — resolve it straight away. Platforms with no metadata
+  // row of their own skip the pass entirely rather than hunting for a
+  // stand-in: an empty selector would throw, and a guessed one would put the
+  // chip somewhere nobody has looked.
+  if (MODAL_META) {
+    for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
+  }
 }
 
 // Netflix adds cards in bursts; debounce so a burst is one scan, not fifty.

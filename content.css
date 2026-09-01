@@ -1,12 +1,20 @@
-/* The badge sits on top of Netflix's own artwork, so everything here is
-   defensive: high z-index, no pointer events (never steal a click from
-   Netflix's hover preview), and a dark plate so it stays readable over
-   whatever the poster happens to look like.
+/* The badge sits on top of the site's own artwork, so everything here is
+   defensive: high z-index, no pointer events (never steal a click from a
+   hover preview), and a dark plate so it stays readable over whatever the
+   poster happens to look like.
 
-   Top-RIGHT is deliberate. Netflix puts its TOP 10 ribbon in the top-left
-   corner and its "New Season" / "Recently added" tags in the bottom-left, so
-   the right side is the only corner that stays clear. */
+   Top-RIGHT is deliberate, and both sites the extension runs on agree on it.
+   Netflix puts its TOP 10 ribbon in the top-left corner and its "New Season" /
+   "Recently added" tags in the bottom-left; Prime Video's own hover overlays
+   also sit top-left. The right side is the corner nobody else wants.
 
+   Nothing below is measured against a particular tile size, which is what lets
+   Prime's wider packshot take the same badge unchanged — the badge is pinned
+   to a corner and sized by its own text, never by its host. */
+
+/* Only ever adds a positioning context where the host lacks one: Netflix's
+   grid tiles are position:static and need it, while Prime's packshot is
+   already relative, so this restates what it has rather than overriding it. */
 .nrx-host {
   position: relative;
 }
@@ -92,6 +100,14 @@
    people should not look like an 8.7 from 2.3 million. In practice it also
    catches bad matches: a famous series showing 90 votes has resolved to the
    wrong entry, and the dash is the tell. */
+/* Which corner is free depends on the platform: Netflix keeps its TOP 10
+   ribbon top-left, Prime puts "NEW MOVIE" and "TRENDING" top-right. Both
+   measured on the live sites — the badge collided in each case. */
+.nrx-badge[data-corner="left"] {
+  left: 6px;
+  right: auto;
+}
+
 .nrx-badge[data-confidence="low"] {
   border-style: dashed;
   opacity: 0.85;

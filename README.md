@@ -1,6 +1,6 @@
-# IMDb Ratings for Netflix
+# IMDb Ratings for Netflix & Prime Video
 
-Netflix doesn't show you IMDb ratings, so choosing something means opening a
+Netflix and Prime Video don't show you IMDb ratings, so choosing something means opening a
 second tab for every title that looks vaguely interesting. This is a small
 Chrome extension that puts the rating straight onto the card.
 
@@ -123,6 +123,10 @@ was mostly not missing data — it was alias resolution.
 - **Some titles have no rating anywhere.** Trailers and unreleased films
   genuinely have nothing to show, and grey is the honest answer there.
 - **Chrome only.** It's Manifest V3, so Firefox would need small changes.
+- **Prime Video is supported**, but only `primevideo.com` was verified on a
+  live signed-in site. The `amazon.*/gp/video` patterns are included on the
+  expectation that they serve the same web app; if badges never appear there,
+  that expectation was wrong and those patterns should be dropped.
 
 ## Ideas for later
 
