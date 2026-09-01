@@ -74,13 +74,13 @@ executed on a real machine.
 | 35 | Firefox port | — | Only worth it if Firefox is used |
 | 36 | Disney+ | — | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here |
 
-## Candidates for a paid tier — not committed
+## The watching bundle — committed
 
 These are complementary features: they make watching better rather than
 choosing better, so they sit outside the test the rest of this list is sorted
-by. Recorded because they answer a separate question — what someone would pay
-for — and because the line between free and paid can be drawn somewhere
-principled rather than arbitrarily.
+by. They are committed, and they are the candidate paid tier — the line between
+free and paid can follow the data licence rather than being drawn arbitrarily
+(see below).
 
 **The test to apply is whether a feature needs data we do not have.** Pure UI
 manipulation costs nothing architecturally: no server, no backend, nothing to
@@ -106,10 +106,33 @@ Leaving-soon dates, cross-service availability, content and parental warnings,
 awards. All genuinely useful, all requiring a backend. Declining them is the
 same decision as declining Rotten Tomatoes, for the same reason.
 
-### Technically impossible
+### Not possible, and not to be attempted
 
-Screenshots and frame capture. Netflix video is DRM-protected and canvas
-capture yields black frames.
+Screenshots and frame capture. Netflix video is Widevine-protected, so
+`canvas.drawImage()` on the video element yields black. Working around that
+means circumventing DRM: not a build we will ship, both because it invites the
+extension being pulled and because anti-circumvention law is not a grey area
+worth testing.
+
+### Capture-adjacent — legitimate, and unexpectedly rich
+
+The protected thing is the *video*. Almost everything else on the page is not,
+which leaves a real feature area next to the impossible one.
+
+| Feature | Why it works |
+| --- | --- |
+| **Subtitle and transcript capture** | Netflix renders subtitles as DOM text, not as part of the encrypted stream. Copying the current line, building a transcript, or exporting one touches no protected content at all |
+| **Vocabulary and phrase lookup** | Built on the same text. A dual-subtitle or click-a-word-to-define layer is the proven shape here — Language Reactor built a large *paid* userbase on exactly this, which is the clearest evidence of willingness to pay anywhere near this product |
+| **Timestamp bookmarks with notes** | "Stopped at 42:15, the thing about the brother." Player position is readable; the note is local. No video access needed |
+| **Save the artwork** | Box art and title treatments are ordinary images served from Netflix's CDN, entirely outside the DRM boundary |
+| **Export My List and viewing history** | The user's own account data, already rendered in the page. An export is a convenience over data they can already see |
+
+The subtitle line is the interesting one strategically: it is the same
+architecture as everything else here — the data is already on the page, so it
+needs no server — and it opens onto a different audience (language learners)
+who are demonstrably willing to pay. It is also a much larger build than
+anything else on this list, and it competes with an established incumbent, so
+it deserves its own decision rather than being folded in as a feature.
 
 ### Why this matters for pricing
 
