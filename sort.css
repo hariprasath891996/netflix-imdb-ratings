@@ -103,16 +103,29 @@
   font-weight: 600;
 }
 
-/* Set as a property in sort.js, so the UA rule has to be restated to outrank
-   the colour above. */
-.nrx-sort-pending[hidden] {
+/* The sort standing down because Netflix re-rendered the grid out from under
+   it. The same amber as the pending count, because it is the same kind of
+   admission — what is on screen is not quite what was asked for — and the two
+   can never appear together: conceding clears the pending count on its way
+   past. It stays a footnote rather than a warning, because the loud half of the
+   message is already on the buttons, which have switched back to Netflix order
+   in front of the reader. */
+.nrx-sort-note {
+  color: #e5a00d;
+}
+
+/* Both are set as a property in sort.js, so the UA rule has to be restated to
+   outrank the colours above. */
+.nrx-sort-pending[hidden],
+.nrx-sort-note[hidden] {
   display: none;
 }
 
-/* The tiles themselves never animate — CSS `order` is not an animatable
-   property, and a 58-tile crossfade would be exactly the chaos the deferred
-   restack exists to avoid. Only the button's own hover moves, so this is the
-   whole of what reduced motion has to switch off. */
+/* The tiles themselves never animate. Neither lever can be animated — CSS
+   `order` is not an animatable property, and moving a tile to another row is a
+   cut, not a transition — and a 58-tile crossfade would in any case be exactly
+   the chaos the deferred restack exists to avoid. Only the button's own hover
+   moves, so this is the whole of what reduced motion has to switch off. */
 @media (prefers-reduced-motion: reduce) {
   .nrx-sort-btn {
     transition: none;

@@ -8,6 +8,24 @@
 // ranked-card, progress-card) are horizontal carousels that Netflix scrolls and
 // virtualises itself, and reordering those would be a fight with its own
 // scroller rather than a feature.
+//
+// Two container shapes are recognised, and each gets its own lever:
+//
+//   flat     the tiles (or one-tile wrappers) are siblings in one child list.
+//            Netflix does not ship this today, but it is the shape worth
+//            keeping first in line: on a flex or grid parent it sorts by CSS
+//            `order` alone and never touches the DOM at all.
+//
+//   buckets  what Netflix actually builds, measured on both surfaces:
+//            container (block) > row (block) > cell (inline-block) > tile,
+//            one cell per tile — 58 tiles on a genre page have 58 distinct
+//            parents spread across 11 rows; My List is the same component with
+//            3. Nothing here is flex or grid, so `order` is inert, and even a
+//            row that did honour it would only sort itself. Sorting this shape
+//            means moving cells between rows, which is a destructive edit to a
+//            subtree React owns — hence the capture, the re-render detector and
+//            the resize handler further down. Those three are not defensive
+//            padding; they are the price of the only lever this shape has.
 
 // Content scripts injected into the same world share one global lexical scope,
 // so a top-level `const filter` here would collide with content.js's and throw
@@ -42,8 +60,23 @@
   // Tiles that arrive after a sort park at the end until the next restack
   // places them properly. Any flex/grid child without an explicit order
   // defaults to 0, which would shoot a brand-new unrated tile to the very top —
-  // so every child gets an explicit order, and newcomers get this one.
+  // so every child gets an explicit order, and newcomers get this one. Flat
+  // shape only: a grid sorted by DOM moves already has a real tail, and a
+  // newcomer appended to it is already in it.
   const TAIL_ORDER = 1e6;
+
+  // React putting its own children back where it wants them is worth answering
+  // once or twice — a re-render can land mid-sort simply because the two
+  // happened at the same moment. It stops being worth answering when the answer
+  // keeps getting undone: at that point two components are taking turns
+  // rewriting one subtree, and the only way to not be in a loop is to leave.
+  // The window is what separates "twice in a second" from "twice in a session".
+  const MAX_REAPPLY = 2;
+  const REAPPLY_WINDOW = 4000;
+
+  // Long enough that a drag across the screen edge is one settle rather than
+  // forty, short enough that the grid does not sit visibly unsorted afterwards.
+  const RESIZE_SETTLE = 350;
 
   let container = null;
   let bar = null;
@@ -51,8 +84,10 @@
   let netflixBtn = null;
   let statusEl = null;
   let pendingEl = null;
+  let noteEl = null;
 
   let sorted = false;
+  let shape = "flat";
   let strategy = "order";
   let strategyChecked = false;
 
@@ -62,6 +97,28 @@
   // and reconstructing what Netflix meant from a grid we have already shuffled
   // is exactly the guesswork this capture exists to avoid.
   let baseline = [];
+
+  // The same idea for the bucketed shape, where "Netflix's order" is two facts
+  // per cell rather than one — which row it was in, and where in that row. Both
+  // are gone from the DOM the instant a cell is moved, so both are written down
+  // first: rowPlan is [{ row, cells }] in document order, and it is the only
+  // thing restore() ever plays back from.
+  let rowPlan = [];
+
+  // Every cell the capture has ever accounted for. What it is really for is
+  // telling a cell that arrived since the last sort apart from one we placed —
+  // the first is the grid growing, the second is the page rewriting our work,
+  // and they call for opposite responses.
+  let knownCells = null;
+
+  // The exact order the last sort left the grid in, which is what the re-render
+  // detector compares the live grid against. Null means there is nothing of
+  // ours on screen to defend.
+  let applied = null;
+
+  let reapplyCount = 0;
+  let reapplyAt = 0;
+  let note = "";
 
   let gridObserver = null;
   let gridListeners = null;
@@ -110,22 +167,86 @@
       node = node.firstElementChild;
     }
 
-    // If the tiles turn out to be bucketed into wrapper rows, this lands on a
-    // handful of buckets rather than the tiles themselves, and reordering
-    // buckets would shuffle blocks of titles while claiming to sort titles.
-    // Bailing is the right answer to that: no control at all beats a control
-    // that produces an order nobody asked for.
-    //
-    // Counting children is not enough to detect that. Measured on a live genre
-    // page: 58 tiles sit inside 11 row containers, so a count test passes on
-    // 11 and we would happily sort rows by whichever tile happened to be first
-    // in each. The test that actually means "these children are the tiles" is
-    // that no single child holds more than one of them.
-    if (node.children.length < MIN_TILES) return null;
+    // Two shapes, tried in the order they deserve. The flat one is checked
+    // first and its test is left exactly as strict as it was: it is not a
+    // fallback that the bucketed reader has made redundant, it is the better
+    // container to be handed, and loosening it so the real Netflix DOM squeaked
+    // through would have thrown that away and sorted rows as if they were
+    // titles. The bucketed reader is a second recognised shape beside it, with
+    // its own equally strict test.
+    if (isFlat(node)) return { node, shape: "flat", rows: null };
+
+    const rows = readBuckets(node);
+    if (rows) return { node, shape: "buckets", rows };
+
+    // Some third arrangement nobody has measured. No control at all beats a
+    // control that produces an order nobody asked for.
+    return null;
+  }
+
+  // How many titles moving this one element would move. Counting the element
+  // itself as well as its descendants is what lets the same test read a bare
+  // tile and a wrapper around a tile as the same thing — one movable title —
+  // without either shape needing a branch of its own.
+  function countTiles(element) {
+    return (element.matches(TILE) ? 1 : 0) + element.querySelectorAll(TILE).length;
+  }
+
+  // A container whose child list IS the grid, so that a sort is a permutation
+  // of one list and nothing else.
+  //
+  // Counting children is not enough to establish that. Measured on a live genre
+  // page: 58 tiles sit inside 11 row containers, so a count test passes on 11
+  // and we would happily sort rows by whichever tile happened to be first in
+  // each. The test that actually means "these children are the tiles" is that
+  // no single child holds more than one of them.
+  function isFlat(node) {
+    if (node.children.length < MIN_TILES) return false;
     for (const child of node.children) {
-      if (child.querySelectorAll(TILE).length > 1) return null;
+      if (countTiles(child) > 1) return false;
     }
-    return node;
+    return true;
+  }
+
+  // The bucketed shape: container > rows > one cell per tile. Returns the row
+  // elements in document order, or null if this is not that shape.
+  //
+  // Recognised strictly, on purpose, because the whole sort rests on "moving
+  // this element moves exactly one title". A row child holding two tiles, or
+  // holding none, is a component nobody has measured — a group header, a
+  // double-width feature cell — and moving it would either drag a second title
+  // along or leave a hole in the grid. Either way the honest answer is to not
+  // recognise the shape rather than to move it and hope.
+  //
+  // A child of the container holding no tiles is a different case entirely: a
+  // spacer, a load-more sentinel, the row Netflix has not filled yet. It is not
+  // a row of ours, it is simply skipped, and it stays where it is through every
+  // sort and every restore.
+  function readBuckets(node) {
+    const rows = [];
+    let cells = 0;
+
+    for (const child of node.children) {
+      if (!child.querySelector(TILE)) continue;
+      if (!child.children.length) return null;
+      for (const cell of child.children) {
+        if (countTiles(cell) !== 1) return null;
+      }
+      rows.push(child);
+      cells += child.children.length;
+    }
+
+    // One row is not a bucketed grid, it is a flat container one level down —
+    // and the single-child descent above has already handed that case to the
+    // flat path, where it belongs.
+    if (rows.length < 2) return null;
+
+    // Every tile under this container has to be in a cell in a row. If the
+    // count comes up short there are tiles somewhere this reader did not look,
+    // and a sort would quietly leave them out of the ordering.
+    if (cells !== node.querySelectorAll(TILE).length) return null;
+
+    return rows;
   }
 
   // --- reading a rating off a tile -----------------------------------------
@@ -140,8 +261,34 @@
     return Number.isFinite(value) ? value : null;
   }
 
+  // Netflix's arrangement, written down before the first move. A cell that has
+  // since been removed from the page is dropped rather than carried: it is not
+  // part of any order any more, and computeSequence() would otherwise try to
+  // place a node that is not in the document.
+  function capture(rows) {
+    rowPlan = rows.map((row) => ({ row, cells: Array.from(row.children) }));
+    knownCells = new Set();
+    for (const entry of rowPlan) {
+      for (const cell of entry.cells) knownCells.add(cell);
+    }
+    applied = null;
+  }
+
   function naturalOrder() {
     if (strategy === "order") return Array.from(container.children);
+
+    // Read out of the capture, row by row, which is the only place Netflix's
+    // arrangement still exists once a cell has been moved.
+    if (strategy === "buckets") {
+      const cells = [];
+      for (const entry of rowPlan) {
+        for (const cell of entry.cells) {
+          if (cell.isConnected) cells.push(cell);
+        }
+      }
+      return cells;
+    }
+
     return baseline.filter((item) => item.parentElement === container);
   }
 
@@ -180,6 +327,11 @@
       return;
     }
 
+    if (strategy === "buckets") {
+      layoutRows(sequence);
+      return;
+    }
+
     // insertBefore moves the existing node — it never clones — so Netflix's own
     // click and hover listeners ride along untouched.
     suppress = true;
@@ -195,6 +347,210 @@
       if (gridObserver) gridObserver.takeRecords();
       suppress = false;
     }
+  }
+
+  // --- laying out the bucketed shape ----------------------------------------
+  // Cells are inline-block and rows are block, so a row is exactly as tall as
+  // one tile and exactly as wide as the cells inside it. That is what makes the
+  // grid a grid, and it is also what a sort can destroy: deal seven cells into
+  // a row that held six and the row wraps, taking every row below it with it.
+  //
+  // So the sort is a redistribution rather than a reordering. Every cell in the
+  // grid is dealt back out across the rows in sorted order, and each row takes
+  // exactly the number of cells the capture says it held — the best-rated title
+  // lands in the first slot of the first row, and the grid keeps the shape it
+  // had before anybody pressed anything.
+  //
+  // appendChild moves the existing node; nothing here clones, so Netflix's own
+  // listeners and content.js's badge ride along inside the cell untouched. And
+  // because every cell is appended exactly once, in sequence order, a cell that
+  // was in this row and belongs in a later one is carried out of it by that
+  // later row's turn rather than needing to be removed first.
+  function layoutRows(sequence) {
+    suppress = true;
+    try {
+      let index = 0;
+      let last = null;
+
+      for (const entry of rowPlan) {
+        // A row React has replaced under us is not ours to fill. Filling it
+        // would be arguing with the re-render that pageReordered() is about to
+        // report, and the point of that report is to stop rather than argue.
+        if (entry.row.parentElement !== container) continue;
+        last = entry.row;
+        for (let i = 0; i < entry.cells.length && index < sequence.length; i++) {
+          entry.row.appendChild(sequence[index++]);
+        }
+      }
+
+      // Only reachable if the capture's total capacity shrank between the last
+      // adoption and now. A long final row is a visibly wrong grid; a cell
+      // stranded mid-grid in the order it happened to be left in is a wrong
+      // grid nobody can see, which is worse.
+      while (last && index < sequence.length) last.appendChild(sequence[index++]);
+
+      applied = sequence.slice(0, index);
+    } finally {
+      // Our own moves would otherwise come back through the observer as
+      // "the grid changed" and schedule a restack of the restack.
+      if (gridObserver) gridObserver.takeRecords();
+      suppress = false;
+    }
+  }
+
+  // Netflix's arrangement, played back from the capture rather than derived
+  // from anything on screen — the screen no longer knows. Each row is refilled
+  // with the cells it was holding at capture time, in the order it was holding
+  // them, which puts every cell back in the row it came from and at the index
+  // it came from.
+  function restoreRows() {
+    suppress = true;
+    try {
+      for (const entry of rowPlan) {
+        if (entry.row.parentElement !== container) continue;
+        for (const cell of entry.cells) {
+          // A cell React has deleted stays deleted. appendChild would happily
+          // put it back on screen, and a restore that resurrects a title the
+          // page removed is this file inventing content.
+          if (cell.isConnected) entry.row.appendChild(cell);
+        }
+      }
+      applied = null;
+    } finally {
+      if (gridObserver) gridObserver.takeRecords();
+      suppress = false;
+    }
+  }
+
+  // A title removed from My List takes its cell with it. Dropping it from the
+  // capture keeps the restore exact for everything that is left and keeps each
+  // row's capacity honest. The alternative — reading the missing cell as
+  // evidence that the page rewrote our order — would undo the sort every time
+  // somebody tidied their list.
+  function pruneCapture() {
+    let dropped = false;
+    for (const entry of rowPlan) {
+      if (entry.cells.every((cell) => cell.isConnected)) continue;
+      entry.cells = entry.cells.filter((cell) => cell.isConnected);
+      dropped = true;
+    }
+    if (!dropped) return;
+
+    knownCells = new Set();
+    for (const entry of rowPlan) {
+      for (const cell of entry.cells) knownCells.add(cell);
+    }
+    if (applied) applied = applied.filter((cell) => cell.isConnected);
+  }
+
+  // Whether every row the capture describes is still where it was recorded.
+  // When this stops being true the capture describes a page that no longer
+  // exists, and nothing built on it — the restore least of all — means anything
+  // until it has been retaken.
+  function captureStale() {
+    for (const entry of rowPlan) {
+      if (entry.row.parentElement !== container) return true;
+    }
+    return false;
+  }
+
+  // --- the page rewriting our work ------------------------------------------
+  // React can re-render this grid at any moment and put its own children back
+  // in its own order, which silently undoes a sort. Re-applying is the obvious
+  // answer and the wrong reflex: a re-render answered by a sort can be answered
+  // by another re-render, and two components taking turns rewriting one subtree
+  // is a loop that burns the tab. So it is detected, answered a bounded number
+  // of times, and then conceded — see noteReconcile().
+  //
+  // Only cells the capture already knows are compared. A cell that arrived
+  // since the last sort is Netflix loading more of the grid, which is the
+  // restack's business; counting it as evidence of a rewrite would make every
+  // scroll look like a fight.
+  function pageReordered() {
+    let index = 0;
+    for (const entry of rowPlan) {
+      // The rows themselves being replaced is the loudest possible version of
+      // this: the capture now points at elements that are no longer in the page.
+      if (entry.row.parentElement !== container) return true;
+      for (const cell of entry.row.children) {
+        if (!knownCells.has(cell)) continue;
+        if (cell !== applied[index++]) return true;
+      }
+    }
+    return index !== applied.length;
+  }
+
+  function noteReconcile() {
+    const now = Date.now();
+    if (now - reapplyAt > REAPPLY_WINDOW) reapplyCount = 0;
+    reapplyAt = now;
+
+    if (++reapplyCount > MAX_REAPPLY) { concede(); return; }
+
+    // Through the restack rather than straight into a sort, so a re-render that
+    // lands while the pointer is over a tile is still held rather than yanking
+    // the grid out from under it.
+    scheduleRestack();
+  }
+
+  // Standing down, visibly. The grid is in Netflix's order because Netflix just
+  // put it there, so the buttons are made to agree with the screen and the bar
+  // says what happened. A sort button left reading "pressed" over a grid that
+  // is no longer sorted would be the same lie as a button that does nothing.
+  function concede() {
+    sorted = false;
+    pendingRatings = 0;
+    applied = null;
+    reapplyCount = 0;
+
+    // React's children are back in React's order, which is Netflix's — so this
+    // is the one moment after a sort when a fresh capture is not guesswork.
+    const found = findGrid();
+    if (found && found.node === container && found.shape === "buckets") capture(found.rows);
+
+    note = "Netflix rebuilt this grid";
+    update();
+  }
+
+  // The one re-render this file can see coming. Netflix recomputes how many
+  // cells fit on a row when the window changes width, and a re-render landing
+  // while cells sit in rows React did not put them in is the worst case here:
+  // React deletes a child from the row its own model says holds it, and if we
+  // moved that child the call throws inside Netflix's own reconciler.
+  //
+  // So the divergence is closed first and reopened afterwards. Netflix debounces
+  // its own resize work while this listener runs synchronously on the event,
+  // which is what makes "first" achievable rather than hopeful. The grid sits
+  // visibly unsorted for the length of the drag, with the button still pressed —
+  // that is the honest state: the sort is still on, it is being recomputed.
+  function onResize() {
+    if (!sorted) return;
+    restoreRows();
+    clearTimeout(restackTimer);
+    restackTimer = setTimeout(resettle, RESIZE_SETTLE);
+  }
+
+  // After the resize settles the rows may be new elements holding a different
+  // number of cells each, so the capture is retaken before the sort goes back
+  // on. Retaking it is safe for the same reason it is safe in concede(): what
+  // is on screen is Netflix's own arrangement, because we put it back there
+  // before Netflix touched it.
+  function resettle() {
+    restackTimer = null;
+    if (!sorted || !container) return;
+
+    // Failing to read the shape back is not on its own a reason to stop: the
+    // capture may still describe live rows, and sorting against those is better
+    // than leaving the button pressed over a grid that is no longer sorted. It
+    // is a reason to stop when the capture is stale too, because then there is
+    // nothing left to sort against.
+    const found = findGrid();
+    if (found && found.node === container && found.shape === "buckets") capture(found.rows);
+    else if (captureStale()) { concede(); return; }
+
+    applySequence(computeSequence());
+    pendingRatings = 0;
+    update();
   }
 
   // A container can report display:grid and still ignore `order` — if it places
@@ -233,6 +589,12 @@
 
     sorted = true;
     pendingRatings = 0;
+
+    // Only ever reached from the button, so pressing it is the user asking
+    // again after a concession — which is exactly the moment to forget that a
+    // previous attempt was overwritten and give the page another chance.
+    reapplyCount = 0;
+    note = "";
     update();
   }
 
@@ -242,9 +604,12 @@
       // property leaves the browser reading Netflix's own child order —
       // including any tiles that lazy-loaded in while we were sorted.
       for (const item of container.children) item.style.order = "";
+    } else if (strategy === "buckets") {
+      restoreRows();
     } else {
       applySequence(naturalOrder());
     }
+    note = "";
     sorted = false;
     pendingRatings = 0;
     update();
@@ -261,9 +626,10 @@
   // for as long as the pointer is actually over a tile or focus is inside the
   // grid, and released the moment it is not. In practice that means the grid
   // re-settles in the gaps between hovers instead of jumping out from under the
-  // cursor. Because `order` never changes the container's height, a restack
-  // also never moves the scroll position — the tiles rearrange, the page does
-  // not lurch.
+  // cursor. Because `order` never changes the container's height — and because
+  // the bucketed layout hands every row back the number of cells it started
+  // with — a restack never moves the scroll position either: the tiles
+  // rearrange, the page does not lurch.
   function scheduleRestack() {
     clearTimeout(restackTimer);
     restackTimer = setTimeout(flushRestack, RESTACK_DELAY);
@@ -277,6 +643,11 @@
     // pending count stays on screen so the delay is visible rather than
     // mysterious.
     if (pointerOnTile || container.contains(document.activeElement)) return;
+
+    // The rows this sort was planned against are not in the page any more, so
+    // re-plan against the ones that replaced them rather than dealing cells
+    // into detached elements and calling the result a sorted grid.
+    if (strategy === "buckets" && captureStale()) { resettle(); return; }
 
     applySequence(computeSequence());
     pendingRatings = 0;
@@ -306,6 +677,12 @@
     const showPending = sorted && pendingRatings > 0;
     if (showPending) setText(pendingEl, `+${pendingRatings} new`);
     pendingEl.hidden = !showPending;
+
+    // Why the grid went back to Netflix's order without anybody asking it to.
+    // Silently reverting would leave the sort button looking broken, which is
+    // both unfair to the page and useless to the person looking at it.
+    if (note) setText(noteEl, note);
+    noteEl.hidden = !note;
 
     // Nothing to sort by yet. Better a visibly inert button with a count beside
     // it explaining why than one that appears to work and reorders nothing.
@@ -350,7 +727,15 @@
     pendingEl.hidden = true;
     pendingEl.title = "New ratings arrived; the order updates as soon as you are not pointing at a tile";
 
-    element.append(label, ratingBtn, netflixBtn, statusEl, pendingEl);
+    // Shares the amber with the pending count because it is the same class of
+    // message — what is on screen is not what you asked for — and the two can
+    // never show at once: conceding clears the pending count on its way past.
+    noteEl = document.createElement("span");
+    noteEl.className = "nrx-sort-note";
+    noteEl.hidden = true;
+    noteEl.title = "Netflix re-rendered the grid and undid the sort. Press again to re-apply.";
+
+    element.append(label, ratingBtn, netflixBtn, statusEl, pendingEl, noteEl);
     return element;
   }
 
@@ -382,16 +767,33 @@
   }
 
   // --- mounting -------------------------------------------------------------
-  function mount(next) {
-    container = next;
+  function mount(found) {
+    container = found.node;
+    shape = found.shape;
 
-    const display = getComputedStyle(container).display;
-    strategy = /flex|grid/.test(display) ? "order" : "dom";
-    strategyChecked = false;
-    baseline = Array.from(container.children);
+    if (shape === "buckets") {
+      // No self-check to run here, unlike the flat shape below. `order` is not
+      // an unproven lever on this container, it is an inapplicable one —
+      // measured display:block over display:inline-block on both surfaces — and
+      // an appendChild either moves the cell or the element was not in the
+      // document. The measurement that does matter for this shape happens
+      // afterwards, in pageReordered(), and it asks a different question: not
+      // "did the move take effect" but "did it survive".
+      strategy = "buckets";
+      strategyChecked = true;
+      capture(found.rows);
+    } else {
+      const display = getComputedStyle(container).display;
+      strategy = /flex|grid/.test(display) ? "order" : "dom";
+      strategyChecked = false;
+      baseline = Array.from(container.children);
+    }
+
     sorted = false;
     pendingRatings = 0;
     pointerOnTile = false;
+    reapplyCount = 0;
+    note = "";
 
     attachBar();
     if (!bar) { container = null; return; }
@@ -416,6 +818,10 @@
       if (pendingRatings) scheduleRestack();
     }, { signal });
 
+    // Only the bucketed shape has anything at stake in a resize: it is the only
+    // one whose cells sit in parents React did not put them in.
+    if (strategy === "buckets") addEventListener("resize", onResize, { signal });
+
     gridObserver = new MutationObserver((records) => {
       if (suppress) return;
 
@@ -432,10 +838,38 @@
             // A whole tile arriving with its badge already on it.
             newRatings++;
           }
+
+          // Under the bucketed shape a new tile lands inside a row, or inside a
+          // whole new row, and never on the container itself — so the target
+          // test above sees none of it and the arrival has to be recognised by
+          // what it contains.
+          if (strategy === "buckets" && countTiles(node)) newItems = true;
+        }
+
+        // And a title leaving — removed from My List, dropped by a re-render —
+        // is the same event in reverse. It changes the count on the bar and the
+        // capacity of the row it left, and under the bucketed shape it too
+        // happens a level down from the container.
+        if (strategy === "buckets") {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === 1 && countTiles(node)) newItems = true;
+          }
         }
       }
 
+      // Asked before anything is adopted. Adoption is what teaches the capture
+      // where the newcomers are, and once it has, there is no longer any way to
+      // tell a page re-render apart from the grid having simply grown.
+      let undone = false;
+      if (strategy === "buckets") {
+        pruneCapture();
+        undone = sorted && applied !== null && pageReordered();
+      }
+
       if (newItems) adoptNewItems();
+
+      if (undone) { noteReconcile(); update(); return; }
+
       if (sorted && newRatings) pendingRatings += newRatings;
       if (sorted && (newRatings || newItems)) scheduleRestack();
       if (newRatings || newItems) update();
@@ -451,6 +885,8 @@
 
   // Netflix appends tiles to the same container when it loads more of a genre.
   function adoptNewItems() {
+    if (strategy === "buckets") { adoptRows(); return; }
+
     if (strategy === "dom") {
       for (const item of container.children) {
         if (!baseline.includes(item)) baseline.push(item);
@@ -465,6 +901,57 @@
     }
   }
 
+  // Netflix loads a genre page a screenful at a time, appending whole rows of
+  // cells. The capture has to learn about them, and the thing that makes that
+  // safe rather than lossy is this: a cell we have never moved is, by
+  // definition, still exactly where Netflix put it, so recording its position
+  // now records Netflix's own arrangement and the restore stays exact rather
+  // than becoming approximate.
+  //
+  // A new row is recorded whole. A cell appended to a row we already know goes
+  // on the end of that row's recorded list, because the end is where Netflix
+  // appended it — the one case this gets wrong is Netflix inserting into the
+  // middle of a row it has already rendered, which neither surface does.
+  //
+  // Newcomers are not parked anywhere the way the flat path parks them (see
+  // TAIL_ORDER). A grid sorted by moving cells already has a real tail, and a
+  // cell Netflix has just appended is already in it — which is also where an
+  // as-yet-unrated title belongs — until the next restack deals it back out
+  // with everything else.
+  function adoptRows() {
+    const known = new Map(rowPlan.map((entry) => [entry.row, entry]));
+    const next = [];
+
+    // Rebuilt from the live child list rather than appended to, so that a row
+    // Netflix inserts anywhere but the end is still filled in the order it is
+    // read in. A recorded row that is no longer a child of the container is
+    // dropped here, which is only ever reached when the sort is off — while it
+    // is on, that same condition is what pageReordered() reports as a rebuild,
+    // and it is answered before anything gets to this function.
+    for (const child of container.children) {
+      if (!child.querySelector(TILE)) continue;
+
+      const entry = known.get(child);
+      if (entry) {
+        for (const cell of child.children) {
+          if (knownCells.has(cell)) continue;
+          if (countTiles(cell) !== 1) continue;
+          entry.cells.push(cell);
+          knownCells.add(cell);
+        }
+        next.push(entry);
+        continue;
+      }
+
+      const cells = Array.from(child.children).filter((cell) => countTiles(cell) === 1);
+      if (!cells.length) continue;
+      for (const cell of cells) knownCells.add(cell);
+      next.push({ row: child, cells });
+    }
+
+    rowPlan = next;
+  }
+
   function unmount() {
     if (restackTimer) { clearTimeout(restackTimer); restackTimer = null; }
     if (gridObserver) { gridObserver.disconnect(); gridObserver = null; }
@@ -472,26 +959,72 @@
     if (barListeners) { barListeners.abort(); barListeners = null; }
 
     // A container can be swapped for a different grid while the old one is
-    // still in the document — Netflix caches pages. Leaving our order values on
-    // it would strand it in a sort with no control to undo it.
-    if (container && container.isConnected && sorted && strategy === "order") {
-      for (const item of container.children) item.style.order = "";
+    // still in the document — Netflix caches pages. Leaving our order on it
+    // would strand it in a sort with no control to undo it.
+    //
+    // The bucketed shape has that problem and a sharper one behind it: React's
+    // model of that subtree still says each cell is in the row it was rendered
+    // into, so putting the cells back is also what keeps a later deletion from
+    // throwing inside Netflix's own reconciler. It is the last chance to close
+    // the divergence, and worth taking even when the grid is on its way out.
+    if (container && container.isConnected && sorted) {
+      if (strategy === "order") {
+        for (const item of container.children) item.style.order = "";
+      } else if (strategy === "buckets") {
+        restoreRows();
+      } else {
+        applySequence(naturalOrder());
+      }
     }
 
     if (bar) { bar.remove(); bar = null; }
-    ratingBtn = netflixBtn = statusEl = pendingEl = null;
+    ratingBtn = netflixBtn = statusEl = pendingEl = noteEl = null;
     container = null;
     baseline = [];
+    rowPlan = [];
+    knownCells = null;
+    applied = null;
+    reapplyCount = 0;
+    note = "";
     sorted = false;
     pendingRatings = 0;
     pointerOnTile = false;
   }
 
+  // Whether the grid we are mounted on is still the grid, asked independently
+  // of whether findGrid() can recognise one this instant.
+  function holdingUp() {
+    if (!container || !container.isConnected) return false;
+    if (strategy !== "buckets") return false;
+    return !captureStale();
+  }
+
   function sync() {
     const found = findGrid();
 
-    if (!found) { unmount(); return; }
-    if (found !== container) { unmount(); mount(found); return; }
+    // A grid that has momentarily stopped being recognisable is not the same
+    // thing as a grid that has gone away, and only the second is a reason to
+    // tear down. Anything Netflix draws into the container — a hover preview, a
+    // placeholder mid-load — can fail the strict read for a moment, and
+    // unmounting on that would pull the bar and undo the sort under the very
+    // pointer that caused it. Recognition still has to be strict to mount; it
+    // does not have to be strict to stay.
+    if (!found) {
+      if (holdingUp()) { update(); return; }
+      unmount();
+      return;
+    }
+
+    // The shape is part of the identity. The same element can be read as flat
+    // one moment and bucketed the next — a genre page that has rendered one row
+    // so far, say — and continuing with the wrong lever on it would sort by a
+    // strategy the container no longer has.
+    if (found.node !== container || found.shape !== shape) {
+      unmount();
+      mount(found);
+      return;
+    }
+
     if (!bar || !bar.isConnected) { attachBar(); }
     update();
   }
