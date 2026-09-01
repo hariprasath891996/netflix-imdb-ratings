@@ -101,6 +101,7 @@ async function datasetStatus() {
     ready: !!meta,
     count: meta?.count ?? 0,
     builtAt: meta?.builtAt ?? null,
+    lastModified: meta?.lastModified ?? null,
     stale: meta ? Date.now() - meta.builtAt > DATASET_MAX_AGE_MS : true
   };
 }
@@ -117,8 +118,26 @@ async function importRatings() {
   importInFlight = (async () => {
     await setProgress({ phase: "downloading", rows: 0 });
 
-    const response = await fetch(RATINGS_URL);
+    // IMDb serves the dataset with Last-Modified and honours a conditional
+    // request, so ask before downloading. Ratings move slowly enough that most
+    // of what a refresh costs is re-importing 1.7M unchanged rows; a 304 skips
+    // both the 8 MB and the import entirely.
+    const previous = (await idbGet(STORE_META, "ratings")) || null;
+    const headers = previous?.lastModified
+      ? { "If-Modified-Since": previous.lastModified }
+      : undefined;
+
+    const response = await fetch(RATINGS_URL, headers ? { headers } : undefined);
+
+    if (response.status === 304) {
+      // Unchanged. Touch the timestamp so we don't ask again until tomorrow.
+      await idbSet(STORE_META, "ratings", { ...previous, builtAt: Date.now() });
+      await setProgress({ phase: "done", rows: previous.count });
+      return previous.count;
+    }
+
     if (!response.ok) throw new Error(`dataset HTTP ${response.status}`);
+    const lastModified = response.headers.get("last-modified");
 
     // Chrome can gunzip a stream natively, so the 8 MB archive is never held
     // in memory in full — it is decoded and consumed line by line.
@@ -165,7 +184,7 @@ async function importRatings() {
     }
     await flush();
 
-    await idbSet(STORE_META, "ratings", { count: rows, builtAt: Date.now() });
+    await idbSet(STORE_META, "ratings", { count: rows, builtAt: Date.now(), lastModified });
     await setProgress({ phase: "done", rows });
     return rows;
   })().finally(() => { importInFlight = null; });
