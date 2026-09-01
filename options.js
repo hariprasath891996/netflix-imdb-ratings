@@ -6,7 +6,8 @@ const status = document.getElementById("status");
 function say(message, kind = "ok") {
   status.textContent = message;
   status.dataset.kind = kind;
-  setTimeout(() => { status.textContent = ""; }, 3000);
+  clearTimeout(say.timer);
+  say.timer = setTimeout(() => { status.textContent = ""; }, 2600);
 }
 
 // --- ratings dataset ------------------------------------------------------
@@ -66,74 +67,148 @@ document.getElementById("clearTitles").addEventListener("click", async () => {
   say("Cleared cached title matches.");
 });
 
-// --- RAG thresholds -------------------------------------------------------
-// Where green becomes amber and amber becomes red is a taste call, not a fact,
-// so it belongs in settings rather than baked into the code.
+// --- the band control -----------------------------------------------------
+// The previous version asked for two numbers and showed three sample scores
+// beside them, which meant reading "5.0" next to "below 6.0" and reconciling
+// them. The setting is really "where do you cut a 0-10 line into three", so
+// the control is now that line, and dragging a boundary is the interaction.
 
-const highInput = document.getElementById("high");
-const midInput = document.getElementById("mid");
+const SCALE_MIN = 0;
+const SCALE_MAX = 10;
+const STEP = 0.1;
+const MIN_BAND = 0.1; // keeps a band from collapsing to nothing
 
-function describe(high, mid) {
-  document.getElementById("txtHigh").textContent = `${high.toFixed(1)} and above`;
-  document.getElementById("txtMid").textContent =
-    mid >= high ? "—" : `${mid.toFixed(1)} to ${(high - 0.1).toFixed(1)}`;
-  document.getElementById("txtLow").textContent = `below ${mid.toFixed(1)}`;
+const scale = document.getElementById("scale");
+const handleMid = document.getElementById("handleMid");
+const handleHigh = document.getElementById("handleHigh");
+const bandLow = document.getElementById("bandLow");
+const bandMid = document.getElementById("bandMid");
+const bandHigh = document.getElementById("bandHigh");
 
-  document.getElementById("egHigh").textContent = high.toFixed(1);
-  document.getElementById("egMid").textContent = mid.toFixed(1);
-  document.getElementById("egLow").textContent = Math.max(0, mid - 1).toFixed(1);
+let tierMid = RAG_DEFAULTS.tierMid;
+let tierHigh = RAG_DEFAULTS.tierHigh;
+
+const pct = (value) => ((value - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100;
+const round = (value) => Math.round(value / STEP) * STEP;
+const fmt = (value) => value.toFixed(1);
+
+function paintScale() {
+  bandLow.style.left = "0%";
+  bandLow.style.width = `${pct(tierMid)}%`;
+  bandMid.style.left = `${pct(tierMid)}%`;
+  bandMid.style.width = `${pct(tierHigh) - pct(tierMid)}%`;
+  bandHigh.style.left = `${pct(tierHigh)}%`;
+  bandHigh.style.right = "0";
+
+  handleMid.style.left = `${pct(tierMid)}%`;
+  handleHigh.style.left = `${pct(tierHigh)}%`;
+  handleMid.dataset.value = fmt(tierMid);
+  handleHigh.dataset.value = fmt(tierHigh);
+  handleMid.setAttribute("aria-valuenow", fmt(tierMid));
+  handleHigh.setAttribute("aria-valuenow", fmt(tierHigh));
+
+  document.getElementById("lblLow").textContent = `under ${fmt(tierMid)}`;
+  // At the minimum band width the range collapses to a single score, and
+  // "8.5–8.5" reads like a mistake.
+  const midTop = tierHigh - STEP;
+  document.getElementById("lblMid").textContent =
+    midTop - tierMid < STEP / 2 ? fmt(tierMid) : `${fmt(tierMid)}–${fmt(midTop)}`;
+  document.getElementById("lblHigh").textContent = `${fmt(tierHigh)}+`;
 }
 
-function currentInputs() {
-  return { high: parseFloat(highInput.value), mid: parseFloat(midInput.value) };
-}
-
-// Live feedback while typing, so you can see what a threshold means before
-// committing to it.
-for (const input of [highInput, midInput]) {
-  input.addEventListener("input", () => {
-    const { high, mid } = currentInputs();
-    if (!Number.isNaN(high) && !Number.isNaN(mid)) describe(high, mid);
+// Persisting on every pointermove would write to storage dozens of times a
+// second. Coalescing into one write per frame keeps the live Netflix update
+// feeling immediate without hammering storage.
+let savePending = false;
+function save() {
+  if (savePending) return;
+  savePending = true;
+  requestAnimationFrame(async () => {
+    savePending = false;
+    await chrome.storage.local.set({ tierHigh, tierMid });
   });
 }
+
+function valueFromClientX(clientX) {
+  const rect = scale.getBoundingClientRect();
+  const ratio = (clientX - rect.left) / rect.width;
+  return round(SCALE_MIN + ratio * (SCALE_MAX - SCALE_MIN));
+}
+
+function setMid(value) {
+  tierMid = Math.min(Math.max(value, SCALE_MIN), tierHigh - MIN_BAND);
+  paintScale();
+  save();
+}
+
+function setHigh(value) {
+  tierHigh = Math.max(Math.min(value, SCALE_MAX), tierMid + MIN_BAND);
+  paintScale();
+  save();
+}
+
+function makeDraggable(handle, setter) {
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+
+    const move = (e) => setter(valueFromClientX(e.clientX));
+    const up = (e) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  });
+
+  // Dragging is fine with a mouse but useless with a keyboard, and a slider
+  // that can't be nudged precisely is annoying even with one.
+  handle.addEventListener("keydown", (event) => {
+    const current = handle === handleMid ? tierMid : tierHigh;
+    const big = event.shiftKey ? 1 : STEP;
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      setter(round(current - big));
+    } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      setter(round(current + big));
+    } else if (event.key === "Home") {
+      setter(SCALE_MIN);
+    } else if (event.key === "End") {
+      setter(SCALE_MAX);
+    } else {
+      return;
+    }
+    event.preventDefault();
+  });
+}
+
+makeDraggable(handleMid, setMid);
+makeDraggable(handleHigh, setHigh);
+
+// Clicking the track moves whichever boundary is nearer — the obvious meaning
+// of clicking a spot on a band control.
+scale.addEventListener("pointerdown", (event) => {
+  if (event.target !== scale && !event.target.classList.contains("track")
+      && !event.target.classList.contains("band")) return;
+  const value = valueFromClientX(event.clientX);
+  if (Math.abs(value - tierMid) <= Math.abs(value - tierHigh)) setMid(value);
+  else setHigh(value);
+});
 
 async function loadThresholds() {
   const saved = await chrome.storage.local.get(["tierHigh", "tierMid"]);
-  const high = typeof saved.tierHigh === "number" ? saved.tierHigh : RAG_DEFAULTS.tierHigh;
-  const mid = typeof saved.tierMid === "number" ? saved.tierMid : RAG_DEFAULTS.tierMid;
-  highInput.value = high;
-  midInput.value = mid;
-  describe(high, mid);
+  tierHigh = typeof saved.tierHigh === "number" ? saved.tierHigh : RAG_DEFAULTS.tierHigh;
+  tierMid = typeof saved.tierMid === "number" ? saved.tierMid : RAG_DEFAULTS.tierMid;
+  paintScale();
 }
 loadThresholds();
 
-document.getElementById("saveTiers").addEventListener("click", async () => {
-  const { high, mid } = currentInputs();
-
-  if (Number.isNaN(high) || Number.isNaN(mid)) {
-    say("Both thresholds need a number.", "error");
-    return;
-  }
-  if (high < 0 || high > 10 || mid < 0 || mid > 10) {
-    say("IMDb ratings run 0–10.", "error");
-    return;
-  }
-  // Without this, the amber band is empty and nothing is ever amber — a
-  // confusing state to leave someone in silently.
-  if (mid >= high) {
-    say("Amber must be lower than green.", "error");
-    return;
-  }
-
-  await chrome.storage.local.set({ tierHigh: high, tierMid: mid });
-  say("Colours saved — your open Netflix tab updates instantly.");
-});
-
 document.getElementById("resetTiers").addEventListener("click", async () => {
-  await chrome.storage.local.set({
-    tierHigh: RAG_DEFAULTS.tierHigh,
-    tierMid: RAG_DEFAULTS.tierMid
-  });
-  await loadThresholds();
+  tierHigh = RAG_DEFAULTS.tierHigh;
+  tierMid = RAG_DEFAULTS.tierMid;
+  paintScale();
+  await chrome.storage.local.set({ tierHigh, tierMid });
   say("Back to defaults.");
 });

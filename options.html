@@ -4,74 +4,82 @@
   <meta charset="utf-8">
   <title>IMDb Ratings for Netflix — Settings</title>
   <style>
-    :root { color-scheme: dark; }
+    :root { color-scheme: dark; --red: #e87c78; --amber: #e5a00d; --green: #46d369; }
     body {
-      width: 330px;
-      margin: 0;
-      padding: 18px;
-      background: #181818;
-      color: #f2f2f2;
+      width: 340px; margin: 0; padding: 18px;
+      background: #181818; color: #f2f2f2;
       font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
     h1 { margin: 0 0 4px; font-size: 15px; }
-    h2 { margin: 0 0 4px; font-size: 13px; }
+    h2 { margin: 0 0 3px; font-size: 13px; }
     p  { margin: 0 0 14px; color: #a3a3a3; font-size: 12.5px; }
-    label { display: block; margin-bottom: 6px; font-size: 12px; color: #a3a3a3; }
-    input {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 8px 10px;
-      border: 1px solid #3a3a3a;
-      border-radius: 4px;
-      background: #262626;
-      color: #f2f2f2;
-      font: inherit;
-      font-variant-numeric: tabular-nums;
-    }
-    input:focus { outline: none; border-color: #7ab8ff; }
-    .row { display: flex; gap: 8px; margin-top: 12px; }
+    hr { margin: 18px 0 14px; border: 0; border-top: 1px solid #2e2e2e; }
+
+    .row { display: flex; gap: 8px; margin-top: 14px; }
     button {
-      flex: 1;
-      padding: 8px 10px;
-      border: 0;
-      border-radius: 4px;
-      background: #e50914;
-      color: #fff;
-      font: 600 13px/1 inherit;
-      cursor: pointer;
+      flex: 1; padding: 8px 10px; border: 0; border-radius: 4px;
+      background: #e50914; color: #fff; font: 600 13px/1 inherit; cursor: pointer;
     }
     button.secondary { background: #333; color: #ccc; }
     button:hover { filter: brightness(1.1); }
     button:disabled { opacity: .5; cursor: default; filter: none; }
-    hr { margin: 18px 0 14px; border: 0; border-top: 1px solid #2e2e2e; }
 
     .state {
       display: flex; align-items: center; gap: 8px;
-      padding: 9px 11px; border-radius: 4px; background: #101010;
-      font-size: 12.5px;
+      padding: 9px 11px; border-radius: 4px; background: #101010; font-size: 12.5px;
     }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #8c8c8c; flex: none; }
-    .state[data-ok="yes"] .dot { background: #46d369; }
-    .state[data-ok="busy"] .dot { background: #e5a00d; }
-    .state[data-ok="no"]  .dot { background: #e87c78; }
+    .state[data-ok="yes"]  .dot { background: var(--green); }
+    .state[data-ok="busy"] .dot { background: var(--amber); }
+    .state[data-ok="no"]   .dot { background: var(--red); }
 
-    .thresholds { display: flex; gap: 10px; }
-    .thresholds div { flex: 1; }
-    .swatch {
-      display: flex; align-items: center; gap: 8px;
-      margin-top: 4px; padding: 6px 8px;
-      border-radius: 4px; background: #101010;
-      font-size: 12px; color: #a3a3a3;
+    /* --- the band control ------------------------------------------------
+       The setting is "where do you cut a 0-10 line into three", so the
+       control is that line. Dragging a boundary is the whole interaction. */
+    .scale { position: relative; height: 62px; margin: 22px 0 2px; touch-action: none; }
+    .track {
+      position: absolute; top: 26px; left: 0; right: 0; height: 12px;
+      border-radius: 6px; overflow: hidden; background: #262626;
     }
-    .chip {
-      padding: 2px 7px; border-radius: 4px;
-      background: rgba(0,0,0,.82); box-shadow: inset 0 0 0 1px currentColor;
-      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    .band { position: absolute; top: 0; bottom: 0; }
+    .band.low   { background: var(--red); }
+    .band.mid   { background: var(--amber); }
+    .band.high  { background: var(--green); }
+
+    .handle {
+      position: absolute; top: 20px; width: 24px; height: 24px; padding: 0;
+      margin-left: -12px; border-radius: 50%;
+      background: #f2f2f2; box-shadow: 0 2px 6px rgba(0,0,0,.55);
+      cursor: grab; flex: none;
     }
-    .chip.high { color: #46d369; } .chip.mid { color: #e5a00d; }
-    .chip.low  { color: #e87c78; }
-    #status { margin-top: 12px; min-height: 18px; font-size: 12.5px; color: #46d369; }
-    #status[data-kind="error"] { color: #e87c78; }
+    .handle:active { cursor: grabbing; }
+    .handle:focus-visible { outline: 2px solid #7ab8ff; outline-offset: 2px; }
+    .handle::after {
+      content: attr(data-value);
+      position: absolute; left: 50%; transform: translateX(-50%);
+      top: -21px; padding: 1px 5px; border-radius: 3px;
+      background: #000; color: #f2f2f2;
+      font: 700 11px/1.5 inherit; font-variant-numeric: tabular-nums;
+    }
+
+    .ticks {
+      position: absolute; top: 42px; left: 0; right: 0;
+      display: flex; justify-content: space-between;
+      font-size: 9.5px; color: #6b6b6b; font-variant-numeric: tabular-nums;
+    }
+
+    .legend { display: flex; gap: 6px; }
+    .legend div {
+      flex: 1; padding: 7px 8px; border-radius: 4px; background: #101010;
+      font-size: 11.5px; color: #a3a3a3; text-align: center;
+    }
+    .legend b { display: block; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .legend .l b { color: var(--red); }
+    .legend .m b { color: var(--amber); }
+    .legend .h b { color: var(--green); }
+
+    #status { margin-top: 12px; min-height: 18px; font-size: 12.5px; color: var(--green); }
+    #status[data-kind="error"] { color: var(--red); }
   </style>
 </head>
 <body>
@@ -90,26 +98,29 @@
   <hr>
 
   <h2>Rating colours</h2>
-  <p>Where green becomes amber, and amber becomes red.</p>
+  <p>Drag to move where the colours change. Netflix updates as you drag.</p>
 
-  <div class="thresholds">
-    <div>
-      <label for="high">Green at or above</label>
-      <input id="high" type="number" min="0" max="10" step="0.1" inputmode="decimal">
+  <div class="scale" id="scale">
+    <div class="track">
+      <div class="band low"  id="bandLow"></div>
+      <div class="band mid"  id="bandMid"></div>
+      <div class="band high" id="bandHigh"></div>
     </div>
-    <div>
-      <label for="mid">Amber at or above</label>
-      <input id="mid" type="number" min="0" max="10" step="0.1" inputmode="decimal">
-    </div>
+    <div class="ticks"><span>0</span><span>5</span><span>10</span></div>
+    <button class="handle" id="handleMid"  role="slider" aria-label="Where red becomes amber"
+            aria-valuemin="0" aria-valuemax="10"></button>
+    <button class="handle" id="handleHigh" role="slider" aria-label="Where amber becomes green"
+            aria-valuemin="0" aria-valuemax="10"></button>
   </div>
 
-  <div class="swatch"><span class="chip high" id="egHigh">8.4</span> <span id="txtHigh"></span></div>
-  <div class="swatch"><span class="chip mid"  id="egMid">6.9</span> <span id="txtMid"></span></div>
-  <div class="swatch"><span class="chip low"  id="egLow">5.2</span> <span id="txtLow"></span></div>
+  <div class="legend">
+    <div class="l">skip<b id="lblLow">—</b></div>
+    <div class="m">maybe<b id="lblMid">—</b></div>
+    <div class="h">worth it<b id="lblHigh">—</b></div>
+  </div>
 
   <div class="row">
-    <button id="saveTiers">Save colours</button>
-    <button id="resetTiers" class="secondary">Reset</button>
+    <button id="resetTiers" class="secondary">Reset to defaults</button>
   </div>
 
   <div id="status" role="status"></div>

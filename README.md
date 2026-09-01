@@ -17,8 +17,9 @@ Ratings are colour-coded so you can scan a row without reading the numbers:
 | ⚪ grey | no IMDb rating found |
 
 Those cut-offs are a taste call, not a fact, so they're editable in the
-extension's settings. Changes apply to an open Netflix tab immediately — only
-the colour mapping changes, so nothing is looked up again.
+extension's settings: drag the two boundaries along a 0–10 scale and an open
+Netflix tab recolours as you drag. Only the colour mapping changes, so nothing
+is looked up again.
 
 ## Install
 
@@ -79,6 +80,11 @@ worse answer than an unrated one with the right name.
   "New Season" / "Recently added" tags.
 - **`preview.html`** is a local harness for eyeballing the badge and tooltip
   without loading the extension. Not part of the extension itself.
+- **`tools/make_icons.py`** draws the icons. There was no image library on the
+  machine this was built on, so it writes PNGs directly with `zlib` and
+  `struct` — which turned out better than a dependency: the icons regenerate
+  from source with `python3 tools/make_icons.py`, and changing the design means
+  editing numbers rather than hunting for the original of a committed binary.
 
 Badges only appear on cards you actually scroll to, and a Netflix tab sitting
 in the background is left alone entirely — browsers suspend the visibility
