@@ -74,6 +74,57 @@ executed on a real machine.
 | 35 | Firefox port | — | Only worth it if Firefox is used |
 | 36 | Disney+ | — | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here |
 
+## Candidates for a paid tier — not committed
+
+These are complementary features: they make watching better rather than
+choosing better, so they sit outside the test the rest of this list is sorted
+by. Recorded because they answer a separate question — what someone would pay
+for — and because the line between free and paid can be drawn somewhere
+principled rather than arbitrarily.
+
+**The test to apply is whether a feature needs data we do not have.** Pure UI
+manipulation costs nothing architecturally: no server, no backend, nothing to
+go down. Anything needing a data source reintroduces everything this extension
+was built to avoid, and with it the need for revenue rather than the choice of
+it.
+
+### Costs nothing architecturally
+
+| Feature | Why |
+| --- | --- |
+| Stop autoplay previews on hover | The most-complained-about Netflix behaviour; the setting exists but is buried per-profile. It is also what outran our own tooltip |
+| Playback speed, wider range and persistent | Netflix's own control is narrow and resets between episodes |
+| Auto-skip intro, recap and next-episode | Netflix supplies the button; pressing it forty times a season is the annoyance |
+| Keyboard shortcuts | ±10s, next/previous episode, speed |
+| Remove "Continue Watching" entries | Netflix makes this deliberately awkward |
+| Randomiser — pick one for me | Pairs with the filters already built: narrow by rating, then let it choose. It finishes the original problem, which was never "what is good" but "I cannot decide" |
+| Subtitle styling beyond Netflix's presets | — |
+
+### Needs data — would undo the architecture
+
+Leaving-soon dates, cross-service availability, content and parental warnings,
+awards. All genuinely useful, all requiring a backend. Declining them is the
+same decision as declining Rotten Tomatoes, for the same reason.
+
+### Technically impossible
+
+Screenshots and frame capture. Netflix video is DRM-protected and canvas
+capture yields black frames.
+
+### Why this matters for pricing
+
+IMDb's dataset is licensed for non-commercial use, which is what makes charging
+for *ratings* legally murky. The features above use no third-party data at all —
+they are our own code manipulating a page nobody licenses to us.
+
+So the free/paid line can follow the licence boundary rather than being drawn
+arbitrarily: **ratings stay free permanently**, honouring the licence and
+serving as the acquisition route (store search for "imdb netflix" is the
+channel), while the playback and quality-of-life bundle is what is sold. That
+is a split with an argument behind it.
+
+---
+
 ## Dropped
 
 | Feature | Reason |

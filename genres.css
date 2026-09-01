@@ -1,0 +1,316 @@
+/* The hidden-category picker. Everything here is prefixed nrx-genre- so it
+   cannot reach a badge, a chip, the season strip or the sort bar — content.css
+   and sort.css own those, and this file is not allowed to have an opinion about
+   them.
+
+   Unlike the badge, none of this sits on Netflix's artwork and none of it sits
+   in Netflix's flow: the trigger is a fixed corner button and the panel is a
+   layer above the page. That is what lets it borrow Netflix's surfaces and type
+   without having to fight anything for legibility or for space — nothing below
+   participates in Netflix's layout, so nothing below can shift it. */
+
+/* The root is a positioning host for two fixed children and nothing else. Zero
+   size and no pointer surface of its own, so an element parked on <body> can
+   never intercept a click meant for the page. */
+.nrx-genre-root {
+  position: static;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+}
+
+/* --- the trigger ----------------------------------------------------------
+   Bottom-right, out of the document flow entirely. Netflix leaves that corner
+   empty on every browse surface — its ribbons are top-left, its previews grow
+   from the row they belong to, its footer is below the fold — and it is where a
+   browser user already expects an extension's own controls to live.
+
+   Quiet at rest is the whole design. At 0.6 it reads as a corner affordance
+   rather than as a piece of Netflix's UI, and it comes fully forward the moment
+   it is pointed at or focused, which is the only time it needs to be read. */
+.nrx-genre-trigger {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147482000;
+
+  /* Netflix's own reset does not reach an element it never rendered, so the
+     button starts from the UA default and has to be talked all the way down. */
+  margin: 0;
+  padding: 7px 13px;
+  border: 1px solid #2f2f2f;
+  border-radius: 999px;
+  background: #181818;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+
+  color: #e5e5e5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.nrx-genre-trigger:hover,
+.nrx-genre-trigger:focus-visible,
+.nrx-genre-trigger[aria-expanded="true"] {
+  opacity: 1;
+  border-color: #8c8c8c;
+  background: #262626;
+}
+
+/* :focus-visible rather than :focus, and white at 2px — the same ring
+   content.css draws on a badge and sort.css draws on its buttons, because
+   someone tabbing between the three should not have to learn three focus
+   styles. */
+.nrx-genre-trigger:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* --- the scrim ------------------------------------------------------------
+   Focus is genuinely trapped while the panel is open, so the page behind it is
+   genuinely inert and should look it. Light, though: this is a panel you open
+   in the middle of browsing, and blacking out the rows that made you open it
+   would be perverse. */
+.nrx-genre-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482500;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* --- the panel ------------------------------------------------------------
+   Anchored above the trigger rather than centred, so the corner it came from is
+   still visibly where it came from. Width is capped but collapses on a narrow
+   window; height is capped against the viewport so the list scrolls rather than
+   the page. */
+.nrx-genre-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 68px;
+  z-index: 2147482600;
+
+  display: flex;
+  flex-direction: column;
+  width: min(410px, calc(100vw - 40px));
+  max-height: min(74vh, 620px);
+  box-sizing: border-box;
+
+  border: 1px solid #2f2f2f;
+  border-radius: 8px;
+  background: #181818;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+
+  color: #e5e5e5;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Both are toggled by the `hidden` property in genres.js, and both set a
+   `display` the UA's own [hidden] rule would otherwise lose to. */
+.nrx-genre-panel[hidden],
+.nrx-genre-backdrop[hidden] {
+  display: none;
+}
+
+.nrx-genre-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.nrx-genre-title {
+  margin: 0;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.nrx-genre-close {
+  margin: 0;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #b3b3b3;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.nrx-genre-close:hover {
+  border-color: #4d4d4d;
+  color: #fff;
+}
+
+.nrx-genre-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* What this list is, in two sentences, above the search field rather than
+   behind a help icon — a panel of numbers nobody recognises needs its premise
+   stated before the numbers, not after them. #b3b3b3 on #181818 is 8.4:1: a
+   footnote by weight, never by legibility. */
+.nrx-genre-note {
+  margin: 6px 14px 10px;
+  color: #b3b3b3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.nrx-genre-search {
+  margin: 0 14px;
+  padding: 7px 10px;
+  border: 1px solid #4d4d4d;
+  border-radius: 4px;
+  background: #101010;
+
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.nrx-genre-search::placeholder {
+  color: #8c8c8c;
+}
+
+/* :focus, not :focus-visible: this field is focused the instant the panel
+   opens, by keyboard and by mouse alike, and a text box with a caret in it and
+   no ring around it looks disabled. */
+.nrx-genre-search:focus {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* "142 of 184 categories". Also the empty state, which is why it sits between
+   the field and the list rather than inside the list — a message about how many
+   rows there are should not be one of the rows. */
+.nrx-genre-status {
+  padding: 8px 14px 6px;
+  color: #8c8c8c;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.nrx-genre-list {
+  flex: 1 1 auto;
+  min-height: 0; /* or the flex child refuses to shrink and the panel overflows */
+  overflow-y: auto;
+  overscroll-behavior: contain; /* don't hand a spent scroll to Netflix's page */
+  padding: 0 6px 6px;
+
+  scrollbar-width: thin;
+  scrollbar-color: #4d4d4d transparent;
+}
+
+/* Sticky, because the group is what tells you whether "Foreign Thrillers" is
+   filed under Thrillers or International, and eighteen groups of rows scroll
+   that answer off the top almost immediately. The solid background is what
+   stops the rows smearing through it. */
+.nrx-genre-group-name {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 8px 4px;
+  background: #181818;
+  color: #8c8c8c;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.nrx-genre-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 6px 8px;
+  border-left: 3px solid transparent; /* held open so the active rail can't shift the row */
+  border-radius: 4px;
+
+  color: #e5e5e5;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* One highlight, moved by the pointer and by the arrow keys alike — there is no
+   separate :hover rule on purpose. Two lit rows at once is an ambiguous answer
+   to the only question this panel has to answer clearly: what Enter opens.
+   That is also the one thing here worth Netflix red, and the only place it
+   appears: a rail on the row about to be acted on. White on #262626 is 12:1. */
+.nrx-genre-option[data-active] {
+  border-left-color: #e50914;
+  background: #262626;
+  color: #fff;
+}
+
+/* Reachable by pointer and by aria-activedescendant, never by Tab — but a
+   ⌘-click leaves the browser free to focus the anchor anyway, and an invisible
+   focus is worse than an unexpected one. */
+.nrx-genre-option:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.nrx-genre-name {
+  min-width: 0;
+}
+
+/* The code is the durable part — it is what the URL is made of and what you
+   would write down — so it is shown rather than left implicit in the link.
+   #b3b3b3 on #262626 is 7.2:1. */
+.nrx-genre-code {
+  flex: 0 0 auto;
+  color: #b3b3b3;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nrx-genre-footer {
+  border-top: 1px solid #2f2f2f;
+  padding: 9px 14px 11px;
+  background: #101010;
+  border-radius: 0 0 7px 7px;
+}
+
+.nrx-genre-keys {
+  color: #8c8c8c;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* The dead-code caveat. Amber because amber is already this extension's "hold
+   on" colour — sort.css uses it for an order it knows is slightly stale, and
+   this is the same kind of admission: the list is the best available, and the
+   best available is not a guarantee. 8.5:1 on #101010, so the one paragraph
+   that qualifies everything above it is never the hardest one to read. */
+.nrx-genre-caveat {
+  margin-top: 6px;
+  color: #e5a00d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* The panel itself never animates in — it is opened deliberately and should be
+   there when the eye arrives — so the trigger's fade is the whole of what
+   reduced motion has to switch off. */
+@media (prefers-reduced-motion: reduce) {
+  .nrx-genre-trigger {
+    transition: none;
+  }
+}

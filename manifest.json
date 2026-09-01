@@ -24,11 +24,13 @@
       "js": [
         "defaults.js",
         "content.js",
-        "sort.js"
+        "sort.js",
+        "genres.js"
       ],
       "css": [
         "content.css",
-        "sort.css"
+        "sort.css",
+        "genres.css"
       ],
       "run_at": "document_idle"
     }

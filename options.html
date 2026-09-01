@@ -61,6 +61,10 @@
       .stack { gap: 14px; }
       .card { padding: 18px; }
       h1 { font-size: 19px; }
+      /* Every genre fits without a scroller at this width, and a scroller
+         inside a page that isn't scrolling reads as a bug. */
+      .chips { max-height: none; }
+      .summary { margin-bottom: 14px; padding: 11px 13px; }
     }
 
     h1 {
@@ -312,17 +316,167 @@
 
     .filter-min { transition: opacity .15s ease; }
     .filter-min[data-off="yes"] { opacity: .4; }
-    .filter-min input[type="range"] {
+
+    /* Shared by both sliders on the page — the dim threshold and the runtime
+       maximum — so the two look like the same control doing different jobs. */
+    .rng {
       display: block; width: 100%; margin: 0;
       accent-color: var(--green); cursor: pointer;
     }
-    .filter-min input[type="range"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-    .filter-min input[type="range"]:disabled { cursor: not-allowed; }
-    .filter-min .ends {
+    .rng:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+    .rng:disabled { cursor: not-allowed; }
+    .ends {
       display: flex; justify-content: space-between;
       margin-top: 2px;
       font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums;
     }
+
+    /* --- narrowing filters -------------------------------------------------
+       Three controls in one card, each a labelled block with its value read
+       out on the right, so the card can be scanned down its right edge. */
+    .ctl { display: flex; flex-direction: column; gap: 6px; }
+    /* The card resets margins on its own children only, and these are a level
+       deeper — without this a <p> here would keep its default 1em. */
+    .ctl > * { margin: 0; }
+    .ctl-head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      font-size: 12.5px;
+    }
+    .ctl-head label { cursor: pointer; }
+    .ctl-head b { font-variant-numeric: tabular-nums; color: var(--green); }
+    /* A filter that isn't filtering shouldn't wear the colour that means it is. */
+    .ctl-head b[data-on="no"] { color: var(--text-3); font-weight: 600; }
+
+    .note { font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
+
+    /* --- the kind segmented control ---------------------------------------
+       Three exclusive options at 340px: a select would hide two of them
+       behind a click, and radios down the page would cost three lines.
+       Native radios keep arrow-key navigation and grouping for free. */
+    .seg {
+      display: flex; gap: 3px; padding: 3px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
+    }
+    .seg label { position: relative; flex: 1; cursor: pointer; }
+    .seg input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+    .seg span {
+      display: block; padding: 6px 4px;
+      border-radius: 5px;
+      font-size: 12px; color: var(--text-2); text-align: center;
+      transition: background-color .12s ease, color .12s ease;
+    }
+    .seg label:hover span { background: #212121; color: var(--text); }
+    .seg label:active span { background: #1a1a1a; }
+    /* Deliberately neutral rather than green: "Everything" is a selection too,
+       and colouring it would claim a filter is running when none is. */
+    .seg input:checked + span {
+      background: #2f2f2f; color: var(--text); font-weight: 600;
+      box-shadow: inset 0 0 0 1px var(--line-hi);
+    }
+    .seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    /* --- the genre picker --------------------------------------------------
+       21 genres is four rows of checkboxes that would dominate the page for a
+       filter most people never touch. Collapsed, it costs one line and still
+       says what is selected; opened, the chips are dense enough to scan and
+       the closed state keeps all 21 out of the tab order. */
+    .disc-row { display: flex; gap: 8px; }
+
+    .disc {
+      appearance: none;
+      display: flex; align-items: center; gap: 10px;
+      flex: 1; min-width: 0;
+      padding: 9px 11px;
+      background: var(--sunken); color: var(--text);
+      border: 1px solid var(--line); border-radius: var(--r-2);
+      font-family: inherit; font-size: 12.5px; text-align: left;
+      cursor: pointer;
+      transition: border-color .12s ease, background-color .12s ease;
+    }
+    .disc:hover { background: #1d1d1d; border-color: var(--line-hi); }
+    .disc:active { background: #161616; }
+    .disc:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    .disc-value {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-align: right; color: var(--text-3); font-weight: 600;
+    }
+    .disc-value[data-on="yes"] { color: var(--green); }
+
+    .chev {
+      flex: none; width: 7px; height: 7px;
+      margin: -3px 2px 0 0;
+      border-right: 1.5px solid var(--text-3); border-bottom: 1.5px solid var(--text-3);
+      transform: rotate(45deg);
+      transition: transform .15s ease;
+    }
+    .disc[aria-expanded="true"] .chev { margin-top: 2px; transform: rotate(-135deg); }
+
+    .chips {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      max-height: 156px; overflow-y: auto; overscroll-behavior: contain;
+      /* Room for a focus ring that would otherwise be clipped by the scroller. */
+      padding: 3px;
+    }
+
+    .chip {
+      appearance: none;
+      padding: 5px 9px;
+      background: var(--sunken); color: var(--text-2);
+      border: 1px solid var(--line); border-radius: 999px;
+      font-family: inherit; font-size: 11.5px; line-height: 1.35;
+      cursor: pointer;
+      transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+    }
+    .chip:hover { background: #1d1d1d; border-color: var(--line-hi); color: var(--text); }
+    .chip:active { background: #161616; }
+    .chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    /* Colour alone would leave a colour-blind user counting on the border, so
+       a selected chip also gains a tick and its weight. */
+    .chip[aria-pressed="true"] {
+      background: rgba(70, 211, 105, .12);
+      border-color: var(--green);
+      color: #d7f5e0; font-weight: 600;
+    }
+    .chip[aria-pressed="true"]::before { content: "✓ "; color: var(--green); }
+
+    /* --- the active-filter summary -----------------------------------------
+       Five filters is more than anyone will re-read on opening the popup, so
+       the top of the page answers "is anything hidden right now" before the
+       first card. Empty is the resting state and is drawn as one: dashed,
+       unfilled, quiet — nothing to act on. */
+    .summary {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+      margin: 0 0 12px; padding: 9px 11px;
+      border: 1px dashed var(--line-hi); border-radius: var(--r-2);
+      font-size: 12px;
+    }
+    .summary[data-active="yes"] {
+      background: var(--card);
+      border-style: solid; border-color: var(--line);
+    }
+    /* Clearing everything removes the button that was clicked, so focus is
+       parked here — where the text has just changed to say what happened. */
+    .summary:focus { outline: none; }
+    .summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    .summary-none { color: var(--text-3); }
+    .summary-body { flex: 1; min-width: 0; }
+
+    .pills { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; }
+    .pill {
+      padding: 3px 8px; border-radius: 999px;
+      background: rgba(229, 160, 13, .12);
+      border: 1px solid rgba(229, 160, 13, .38);
+      color: var(--amber);
+      font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .summary .btn { flex: none; min-height: 28px; padding: 0 10px; font-size: 11.5px; }
+
 
     /* --- the confirmation toast --------------------------------------------
        Pinned to the viewport rather than sitting in the flow, so a message
@@ -361,6 +515,18 @@
     <h1>IMDb Ratings for Netflix</h1>
     <p class="lede">No API key needed — ratings come from IMDb's own published dataset.</p>
   </header>
+
+  <!-- Sits above the cards because it answers the question people arrive with.
+       Not a live region: the sliders repaint it every frame while dragging,
+       and a screen reader would read the whole summary out on each one. -->
+  <section class="summary" id="summary" data-active="no" tabindex="-1"
+           aria-label="Filters in effect">
+    <div class="summary-body">
+      <span class="summary-none" id="summaryNone">No filters — every title shows as normal.</span>
+      <ul class="pills" id="summaryPills" hidden></ul>
+    </div>
+    <button id="clearFilters" type="button" class="btn quiet" hidden>Clear all</button>
+  </section>
 
   <main class="stack">
 
@@ -443,8 +609,66 @@
         <label class="sr-only" for="filterMin">Dim below this rating</label>
         <!-- Matches the label's printed default, so the two don't disagree for
              the frame before the saved value loads. -->
-        <input type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
+        <input class="rng" type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
         <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-narrow">
+      <h2 id="h-narrow">Narrow it down</h2>
+      <p class="hint">Three more ways to decide what recedes. Anything that fails one of these
+        dims exactly like a low rating does — nothing is removed, and a title with no data
+        is never dimmed by any of them.</p>
+
+      <div class="ctl">
+        <div class="ctl-head">
+          <label for="filterRuntime">Maximum length</label>
+          <b id="runtimeLabel" data-on="no">Any</b>
+        </div>
+        <!-- Slider and its end labels are one block, so the column's gap doesn't
+             open up between a scale and the numbers that label it. -->
+        <div>
+          <!-- Starts at the far right, which is the off position — see options.js. -->
+          <input class="rng" type="range" id="filterRuntime" min="60" max="240" step="5" value="240"
+                 aria-describedby="runtimeNote">
+          <div class="ends" aria-hidden="true"><span>1h</span><span>Any</span></div>
+        </div>
+        <p class="note" id="runtimeNote">Films only. IMDb's runtime for a series is one
+          episode, not the whole thing, so series are never dimmed by length.</p>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head">
+          <span id="kindLabel">Show only</span>
+        </div>
+        <div class="seg" role="radiogroup" aria-labelledby="kindLabel">
+          <label>
+            <input type="radio" name="filterKinds" value="all" checked><span>Everything</span>
+          </label>
+          <label>
+            <input type="radio" name="filterKinds" value="movies"><span>Films</span>
+          </label>
+          <label>
+            <input type="radio" name="filterKinds" value="series"><span>Series</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="ctl">
+        <!-- The closed row is this control's heading as well as its trigger:
+             it reads "Genres … Any" on one line, in step with the two above. -->
+        <div class="disc-row">
+          <button id="genreToggle" type="button" class="disc"
+                  aria-expanded="false" aria-controls="genrePanel">
+            <span>Genres</span>
+            <span class="disc-value" id="genreValue" data-on="no">Any</span>
+            <span class="chev" aria-hidden="true"></span>
+          </button>
+          <button id="genreClear" type="button" class="btn quiet" hidden>Clear</button>
+        </div>
+        <!-- Chips are built in options.js from one list, so the vocabulary has
+             a single home rather than 21 hand-written buttons to keep in sync. -->
+        <div class="chips" id="genrePanel" role="group" aria-label="Genres" hidden></div>
       </div>
     </section>
 

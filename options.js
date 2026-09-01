@@ -246,6 +246,10 @@ function paintFilter() {
   // still let a keyboard tab into a control that looked switched off.
   filterMinWrap.dataset.off = filterEnabled.checked ? "no" : "yes";
   filterMin.disabled = !filterEnabled.checked;
+  // This filter is one of the five the summary at the top speaks for, so every
+  // repaint of it is a repaint of that. Declared below; hoisted, and nothing
+  // here runs before the script has finished parsing.
+  paintSummary();
 }
 
 filterEnabled.addEventListener("change", async () => {
@@ -276,6 +280,312 @@ async function loadFilter() {
   paintFilter();
 }
 loadFilter();
+
+// --- narrowing filters ----------------------------------------------------
+// Runtime, kind and genre all answer the same question the dim filter does —
+// what recedes — so they share a card. They also share its restraint: every
+// one of them is off out of the box, and a title the dataset knows nothing
+// about is never judged by them.
+//
+// Their defaults live here rather than in defaults.js because that file is
+// shared with the content script and isn't this page's to extend; the "off"
+// value of each is the value the content script sees when the key is absent.
+const NARROW_DEFAULTS = {
+  filterRuntimeMax: null,
+  filterKinds: "all",
+  filterGenres: []
+};
+
+// 60 is below any feature worth calling long, and 240 is past all but a
+// handful of films — so the top of the scale is worth more as the off switch
+// than as a threshold nothing would ever cross. That saves a second toggle in
+// a card that already has three controls.
+const RUNTIME_MIN = 60;
+const RUNTIME_OFF = 240;
+const RUNTIME_STEP = 5;
+
+const KINDS = ["all", "movies", "series"];
+
+// IMDb's vocabulary is longer than this, but the rest of it (Film-Noir,
+// Talk-Show, Adult…) never appears on a Netflix homepage, and every unusable
+// row costs a real one its place in a 340px list.
+const GENRES = [
+  "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime",
+  "Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+  "Music", "Musical", "Mystery", "Romance", "Sci-Fi", "Sport",
+  "Thriller", "War", "Western"
+];
+
+const filterRuntime = document.getElementById("filterRuntime");
+const runtimeLabel = document.getElementById("runtimeLabel");
+const kindRadios = [...document.querySelectorAll('input[name="filterKinds"]')];
+const genreToggle = document.getElementById("genreToggle");
+const genreValue = document.getElementById("genreValue");
+const genreClear = document.getElementById("genreClear");
+const genrePanel = document.getElementById("genrePanel");
+
+const chosenGenres = new Set();
+
+// Always read back in the vocabulary's own order, so the stored array, the
+// chips and the summary can never disagree about how a selection reads.
+const genreList = () => GENRES.filter((genre) => chosenGenres.has(genre));
+
+// null rather than 240 is what the content script is promised for "off", and
+// it is also the only honest answer: nothing is capped.
+function runtimeValue() {
+  const minutes = parseInt(filterRuntime.value, 10);
+  return minutes >= RUNTIME_OFF ? null : minutes;
+}
+
+function currentKind() {
+  const chosen = kindRadios.find((radio) => radio.checked);
+  return chosen ? chosen.value : NARROW_DEFAULTS.filterKinds;
+}
+
+// Minutes are what the data stores; hours are what people think in.
+function formatRuntime(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (!hours) return `${rest}m`;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function genreSummaryText(list) {
+  if (!list.length) return "Any";
+  if (list.length <= 2) return list.join(", ");
+  return `${list[0]}, ${list[1]} +${list.length - 2}`;
+}
+
+function paintRuntime() {
+  const minutes = runtimeValue();
+  runtimeLabel.textContent = minutes === null ? "Any" : formatRuntime(minutes);
+  runtimeLabel.dataset.on = minutes === null ? "no" : "yes";
+  // "240" is a number the scale doesn't mean at its top end, and a raw minute
+  // count is the wrong unit to hear read out either way.
+  filterRuntime.setAttribute("aria-valuetext",
+    minutes === null ? "Any length" : `${formatRuntime(minutes)} or shorter`);
+  paintSummary();
+}
+
+function paintGenres() {
+  const chosen = genreList();
+  for (const chip of genrePanel.querySelectorAll(".chip")) {
+    chip.setAttribute("aria-pressed", String(chosenGenres.has(chip.dataset.genre)));
+  }
+  genreValue.textContent = genreSummaryText(chosen);
+  genreValue.dataset.on = chosen.length ? "yes" : "no";
+  // The visible text abbreviates past two; the accessible name shouldn't, and
+  // neither should a hover on the collapsed row. It keeps the visible word
+  // "Genres" in front, so voice control can still say what it can see.
+  genreToggle.setAttribute("aria-label",
+    `Genres: ${chosen.length ? chosen.join(", ") : "any"}`);
+  genreToggle.title = chosen.length > 2 ? chosen.join(", ") : "";
+  // Clearing has to be reachable from the closed row, or it costs two actions.
+  genreClear.hidden = chosen.length === 0;
+  paintSummary();
+}
+
+// Same one-write-per-frame coalescing as the two controls above: dragging fires
+// continuously and every write repaints the open Netflix tab.
+let runtimeSavePending = false;
+filterRuntime.addEventListener("input", () => {
+  paintRuntime();
+  if (runtimeSavePending) return;
+  runtimeSavePending = true;
+  requestAnimationFrame(async () => {
+    runtimeSavePending = false;
+    await chrome.storage.local.set({ filterRuntimeMax: runtimeValue() });
+  });
+});
+
+for (const radio of kindRadios) {
+  radio.addEventListener("change", async () => {
+    // Only the radio that gained the selection should write. Stated rather
+    // than assumed, because loadNarrow() and Clear all both set .checked
+    // directly and a listener that trusted the event alone would be fragile.
+    if (!radio.checked) return;
+    paintSummary();
+    await chrome.storage.local.set({ filterKinds: radio.value });
+    say(radio.value === "all" ? "Showing everything."
+      : radio.value === "movies" ? "Films only." : "Series only.");
+  });
+}
+
+function buildGenreChips() {
+  genrePanel.replaceChildren(...GENRES.map((genre) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.dataset.genre = genre;
+    chip.textContent = genre;
+    chip.setAttribute("aria-pressed", "false");
+    return chip;
+  }));
+}
+buildGenreChips();
+
+genreToggle.addEventListener("click", () => {
+  const open = genreToggle.getAttribute("aria-expanded") === "true";
+  genreToggle.setAttribute("aria-expanded", String(!open));
+  genrePanel.hidden = open;
+});
+
+genrePanel.addEventListener("click", async (event) => {
+  const chip = event.target.closest(".chip");
+  if (!chip) return;
+  if (chosenGenres.has(chip.dataset.genre)) chosenGenres.delete(chip.dataset.genre);
+  else chosenGenres.add(chip.dataset.genre);
+  paintGenres();
+  // A chip is one discrete decision, so it writes immediately — there is no
+  // stream of them to coalesce the way a dragged slider produces.
+  await chrome.storage.local.set({ filterGenres: genreList() });
+});
+
+genreClear.addEventListener("click", async () => {
+  chosenGenres.clear();
+  paintGenres();
+  await chrome.storage.local.set({ filterGenres: [] });
+  say("Genres cleared.");
+  // The button it was just on has vanished, so park focus on the row it came
+  // from rather than dropping it back to the top of the page.
+  genreToggle.focus();
+});
+
+async function loadNarrow() {
+  const saved = await chrome.storage.local.get([
+    "filterRuntimeMax", "filterKinds", "filterGenres"
+  ]);
+
+  // Anything unreadable is treated as off. A stored value at or above the top
+  // of the scale can only mean off too, since the UI writes null there.
+  const minutes = Number(saved.filterRuntimeMax);
+  filterRuntime.value = String(
+    Number.isFinite(minutes) && saved.filterRuntimeMax !== null
+      ? Math.min(Math.max(Math.round(minutes / RUNTIME_STEP) * RUNTIME_STEP, RUNTIME_MIN), RUNTIME_OFF)
+      : RUNTIME_OFF
+  );
+
+  const kind = KINDS.includes(saved.filterKinds) ? saved.filterKinds : NARROW_DEFAULTS.filterKinds;
+  const radio = kindRadios.find((one) => one.value === kind);
+  if (radio) radio.checked = true;
+
+  chosenGenres.clear();
+  // Filtered against the vocabulary, so a genre dropped from the list later
+  // can't sit in storage filtering titles with no chip to switch it off.
+  if (Array.isArray(saved.filterGenres)) {
+    for (const genre of saved.filterGenres) {
+      if (GENRES.includes(genre)) chosenGenres.add(genre);
+    }
+  }
+
+  paintRuntime();
+  paintGenres();
+
+  // Everything above quietly repaired a value this page can't display — a
+  // runtime off the scale, an unknown kind, a genre no longer offered. Left
+  // there, storage would keep filtering by something the page has no control
+  // for and the summary would describe a state nobody is in, so the repaired
+  // version is written back. In the ordinary case nothing here differs and
+  // nothing is written.
+  const repairs = {};
+  if (saved.filterRuntimeMax !== undefined && runtimeValue() !== saved.filterRuntimeMax) {
+    repairs.filterRuntimeMax = runtimeValue();
+  }
+  if (saved.filterKinds !== undefined && saved.filterKinds !== kind) {
+    repairs.filterKinds = kind;
+  }
+  const kept = genreList();
+  const storedGenres = Array.isArray(saved.filterGenres) ? saved.filterGenres : null;
+  const genresDiffer = !storedGenres
+    || storedGenres.length !== kept.length
+    || kept.some((genre, index) => storedGenres[index] !== genre);
+  if (saved.filterGenres !== undefined && genresDiffer) repairs.filterGenres = kept;
+  if (Object.keys(repairs).length) await chrome.storage.local.set(repairs);
+}
+loadNarrow();
+
+// --- what is hiding things right now --------------------------------------
+// Five filters spread over two cards is more state than anyone will reconstruct
+// by reading five controls, so the top of the page says it in one line. Empty
+// is the resting state and is drawn as one — dashed, unfilled, nothing to act
+// on — so "no filters" is recognisable without being read.
+
+const summary = document.getElementById("summary");
+const summaryNone = document.getElementById("summaryNone");
+const summaryPills = document.getElementById("summaryPills");
+const clearFilters = document.getElementById("clearFilters");
+
+// Each pill says what is being kept or dimmed, not which control did it —
+// "Films only" is the fact; which card it came from is the reader's problem
+// only once they want to change it.
+function activeFilters() {
+  const active = [];
+  if (filterEnabled.checked) {
+    active.push({ text: `Under ${parseFloat(filterMin.value).toFixed(1)} dimmed` });
+  }
+
+  const minutes = runtimeValue();
+  if (minutes !== null) active.push({ text: `Films over ${formatRuntime(minutes)}` });
+
+  const kind = currentKind();
+  if (kind === "movies") active.push({ text: "Films only" });
+  if (kind === "series") active.push({ text: "Series only" });
+
+  const genres = genreList();
+  if (genres.length) {
+    // Past two names the pill would outgrow the bar, so it counts instead and
+    // keeps the names on hover. The genre row itself always spells them out.
+    active.push({
+      text: genres.length > 2 ? `${genres.length} genres only` : `${genres.join(", ")} only`,
+      title: genres.length > 2 ? genres.join(", ") : ""
+    });
+  }
+
+  return active;
+}
+
+function paintSummary() {
+  const active = activeFilters();
+  summary.dataset.active = active.length ? "yes" : "no";
+  summaryNone.hidden = active.length > 0;
+  summaryPills.hidden = active.length === 0;
+  clearFilters.hidden = active.length === 0;
+
+  summaryPills.replaceChildren(...active.map((entry) => {
+    const pill = document.createElement("li");
+    pill.className = "pill";
+    pill.textContent = entry.text;
+    if (entry.title) pill.title = entry.title;
+    return pill;
+  }));
+}
+
+clearFilters.addEventListener("click", async () => {
+  filterEnabled.checked = false;
+  filterRuntime.value = String(RUNTIME_OFF);
+  const all = kindRadios.find((radio) => radio.value === "all");
+  if (all) all.checked = true;
+  chosenGenres.clear();
+
+  paintFilter();
+  paintRuntime();
+  paintGenres();
+
+  // One write, so the open Netflix tab repaints once rather than four times.
+  // filterMin is deliberately left alone: it is the number this person chose,
+  // and it does nothing while the dimming is off — resetting it would only
+  // punish them for switching the filter back on later.
+  await chrome.storage.local.set({
+    filterEnabled: false,
+    filterRuntimeMax: null,
+    filterKinds: "all",
+    filterGenres: []
+  });
+  say("Filters cleared.");
+  // The button that was just pressed is gone with the filters it cleared, so
+  // focus moves to the line that now explains why rather than to the page top.
+  summary.focus();
+});
 
 // --- fixing a wrong match -------------------------------------------------
 // The worker resolves a Netflix label to an IMDb id from the name alone, and
