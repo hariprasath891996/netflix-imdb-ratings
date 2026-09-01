@@ -719,11 +719,16 @@ input[type="range"]::-moz-range-thumb {
 }
 .cmp-us .cmp-h { color: var(--high); }
 
+/* Stacked rather than a wrapping row. Horizontally, the two-line "single
+   point of failure" node pushes the last node onto a second line and strands
+   an arrow pointing at nothing — and the width it needs is not available
+   inside a two-column comparison card at any viewport worth designing for.
+   Vertical reads as a pipeline regardless of width, with nothing to orphan. */
 .flow {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
   margin-bottom: 22px;
 }
 .node {
@@ -760,18 +765,19 @@ input[type="range"]::-moz-range-thumb {
 
 .arrow {
   flex: none;
-  width: 26px;
-  height: 1px;
+  width: 1px;
+  height: 16px;
+  margin-left: 19px;
   background: #3a3a3a;
   position: relative;
 }
 .arrow::after {
   content: "";
   position: absolute;
-  right: 0; top: -3px;
-  border-left: 6px solid #3a3a3a;
-  border-top: 3.5px solid transparent;
-  border-bottom: 3.5px solid transparent;
+  left: -3px; bottom: -1px;
+  border-top: 6px solid #3a3a3a;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
 }
 
 .cmp-p {
