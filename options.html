@@ -4,42 +4,238 @@
   <meta charset="utf-8">
   <title>IMDb Ratings for Netflix — Settings</title>
   <style>
-    :root { color-scheme: dark; --red: #e87c78; --amber: #e5a00d; --green: #46d369; }
+    /* One palette, defined once. These are the product's colours: the same
+       three tiers the badges use on Netflix, so a threshold set here looks
+       like the thing it controls. */
+    :root {
+      color-scheme: dark;
+
+      --green: #46d369;
+      --amber: #e5a00d;
+      --red: #e87c78;
+      --netflix: #e50914;
+
+      --bg: #101010;
+      --card: #181818;
+      --sunken: #101010;
+      --line: #2a2a2a;
+      --line-hi: #3d3d3d;
+
+      --text: #f2f2f2;
+      --text-2: #a3a3a3;  /* 7.0:1 on --card — AA at any size */
+      --text-3: #8c8c8c;  /* 5.3:1 — the floor for anything with words in it */
+
+      --focus: #7ab8ff;
+
+      --r-1: 6px;
+      --r-2: 8px;
+      --r-3: 12px;
+    }
+
+    * { box-sizing: border-box; }
+
+    /* Several components below set display on elements that JS also toggles
+       with .hidden, and a component's own display would otherwise win. */
+    [hidden] { display: none !important; }
+
     body {
-      width: 340px; margin: 0; padding: 18px;
-      background: #181818; color: #f2f2f2;
-      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      width: 340px;
+      margin: 0 auto;
+      /* Bottom padding is the toast's landing strip: it is fixed to the
+         viewport, so without this it would sit on top of the last control. */
+      padding: 16px 14px 58px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
-    h1 { margin: 0 0 4px; font-size: 15px; }
-    h2 { margin: 0 0 3px; font-size: 13px; }
-    p  { margin: 0 0 14px; color: #a3a3a3; font-size: 12.5px; }
-    hr { margin: 18px 0 14px; border: 0; border-top: 1px solid #2e2e2e; }
 
-    .row { display: flex; gap: 8px; margin-top: 14px; }
-    button {
-      flex: 1; padding: 8px 10px; border: 0; border-radius: 4px;
-      background: #e50914; color: #fff; font: 600 13px/1 inherit; cursor: pointer;
+    /* From the toolbar icon the viewport *is* the popup, ~340px wide. Opened
+       as the full options page it is a whole tab, where a 340px column
+       stranded in the top-left corner reads as broken rather than compact. */
+    @media (min-width: 560px) {
+      body { width: 520px; padding: 40px 24px 84px; }
+      .page-head { margin-bottom: 20px; }
+      .stack { gap: 14px; }
+      .card { padding: 18px; }
+      h1 { font-size: 19px; }
     }
-    button.secondary { background: #333; color: #ccc; }
-    button:hover { filter: brightness(1.1); }
-    button:disabled { opacity: .5; cursor: default; filter: none; }
 
+    h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+    }
+    .lede, .hint {
+      color: var(--text-2);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .page-head { margin: 0 0 14px; }
+    .page-head .lede { margin: 4px 0 0; }
+
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      margin: -1px; padding: 0; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap; border: 0;
+    }
+
+    /* --- sections ---------------------------------------------------------
+       Each setting is its own card. The previous <hr>s drew a line between
+       two piles of text; a card gives the heading, the explanation and the
+       control one visible boundary, so the eye can skip a whole setting. */
+    .stack { display: flex; flex-direction: column; gap: 12px; }
+
+    .card {
+      padding: 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--r-3);
+    }
+    /* One spacing rhythm for every card: 12px between blocks, 5px between a
+       heading and the sentence that belongs to it. */
+    .card > * { margin: 0; }
+    .card > * + * { margin-top: 12px; }
+    .card > h2 + .hint { margin-top: 5px; }
+
+    /* --- buttons ----------------------------------------------------------- */
+    .btn {
+      appearance: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 34px; padding: 0 12px;
+      border: 1px solid var(--line-hi); border-radius: var(--r-2);
+      background: #262626; color: #eaeaea;
+      font-family: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
+      cursor: pointer;
+      transition: background-color .12s ease, border-color .12s ease, transform .06s ease;
+    }
+    .btn:hover:not(:disabled) { background: #303030; border-color: #4d4d4d; }
+    .btn:active:not(:disabled) { background: #212121; transform: translateY(1px); }
+    .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .btn:disabled { opacity: .42; cursor: not-allowed; }
+
+    /* Netflix red is reserved for the one action a section exists to perform. */
+    .btn.primary { background: var(--netflix); border-color: var(--netflix); color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: #f6121d; border-color: #f6121d; }
+    .btn.primary:active:not(:disabled) { background: #c20811; border-color: #c20811; }
+
+    .btn.quiet { background: transparent; border-color: var(--line-hi); color: var(--text-2); }
+    .btn.quiet:hover:not(:disabled) { background: #212121; color: var(--text); }
+    .btn.quiet:active:not(:disabled) { background: #1a1a1a; }
+
+    .row { display: flex; gap: 8px; }
+    .row > .btn { flex: 1; }
+
+    /* --- dataset status ---------------------------------------------------- */
     .state {
-      display: flex; align-items: center; gap: 8px;
-      padding: 9px 11px; border-radius: 4px; background: #101010; font-size: 12.5px;
+      display: flex; align-items: center; gap: 9px;
+      padding: 10px 11px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
+      font-size: 12.5px;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #8c8c8c; flex: none; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; }
     .state[data-ok="yes"]  .dot { background: var(--green); }
-    .state[data-ok="busy"] .dot { background: var(--amber); }
+    .state[data-ok="busy"] .dot { background: var(--amber); animation: pulse 1.4s ease-in-out infinite; }
     .state[data-ok="no"]   .dot { background: var(--red); }
+
+    @keyframes pulse { 50% { opacity: .3; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* --- fixing a wrong match ---------------------------------------------- */
+    .find { display: flex; gap: 8px; }
+
+    .field {
+      flex: 1; min-width: 0;
+      padding: 8px 10px;
+      background: var(--sunken); color: var(--text);
+      border: 1px solid #333; border-radius: var(--r-2);
+      font-family: inherit; font-size: 12.5px; line-height: 1.4;
+      transition: border-color .12s ease;
+    }
+    .field::placeholder { color: #7d7d7d; }
+    .field:hover { border-color: #454545; }
+    .field:focus { outline: none; border-color: #5a5a5a; }
+    .field:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+    .mstatus {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; line-height: 1.4; color: var(--text-2);
+    }
+    .mstatus[data-kind="error"] { color: var(--red); }
+    .mstatus[data-kind="ok"]    { color: var(--green); }
+    .mstatus[data-kind="busy"]::before {
+      content: ""; flex: none;
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid #3a3a3a; border-top-color: var(--text);
+      animation: spin .7s linear infinite;
+    }
+
+    .cands { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+    .cand {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 8px 10px;
+      background: var(--sunken); color: var(--text);
+      border: 1px solid var(--line); border-radius: var(--r-2);
+      font-family: inherit; font-size: 12.5px; text-align: left;
+      cursor: pointer;
+      transition: background-color .12s ease, border-color .12s ease;
+    }
+    .cand:hover:not(:disabled) { background: #1d1d1d; border-color: var(--line-hi); }
+    .cand:active:not(:disabled) { background: #161616; }
+    .cand:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .cand:disabled { cursor: default; opacity: .55; }
+    .cand[aria-pressed="true"] {
+      border-color: var(--green);
+      background: rgba(70, 211, 105, .09);
+      opacity: 1;
+    }
+
+    .cand-main { flex: 1; min-width: 0; }
+    .cand-title { display: block; font-weight: 600; line-height: 1.3; }
+    .cand-sub { display: block; margin-top: 1px; font-size: 11px; color: var(--text-3); }
+    .cand-sub .pin { color: var(--green); font-weight: 600; }
+
+    .cand-score { flex: none; text-align: right; }
+    .cand-rating {
+      display: block;
+      font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+      color: var(--text-3);
+    }
+    .cand-rating[data-tier="high"] { color: var(--green); }
+    .cand-rating[data-tier="mid"]  { color: var(--amber); }
+    .cand-rating[data-tier="low"]  { color: var(--red); }
+    .cand-votes {
+      display: block;
+      font-size: 10.5px; color: var(--text-3);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    /* The same dashed-amber tell the badge uses on Netflix for a rating built
+       on too few votes — here it is usually the sign of a wrong entry. */
+    .cand-votes[data-thin="yes"] {
+      color: var(--amber);
+      border-bottom: 1px dashed currentColor;
+    }
 
     /* --- the band control ------------------------------------------------
        The setting is "where do you cut a 0-10 line into three", so the
        control is that line. Dragging a boundary is the whole interaction. */
-    .scale { position: relative; height: 62px; margin: 22px 0 2px; touch-action: none; }
+    .scale { position: relative; height: 62px; margin: 4px 0 0; touch-action: none; }
     .track {
       position: absolute; top: 26px; left: 0; right: 0; height: 12px;
       border-radius: 6px; overflow: hidden; background: #262626;
+      cursor: pointer;
     }
     .band { position: absolute; top: 0; bottom: 0; }
     .band.low   { background: var(--red); }
@@ -48,114 +244,211 @@
 
     .handle {
       position: absolute; top: 20px; width: 24px; height: 24px; padding: 0;
-      margin-left: -12px; border-radius: 50%;
+      margin-left: -12px; border: 0; border-radius: 50%;
       background: #f2f2f2; box-shadow: 0 2px 6px rgba(0,0,0,.55);
       cursor: grab; flex: none;
+      transition: box-shadow .12s ease;
     }
-    .handle:active { cursor: grabbing; }
-    .handle:focus-visible { outline: 2px solid #7ab8ff; outline-offset: 2px; }
+    .handle:hover { box-shadow: 0 0 0 6px rgba(242,242,242,.10), 0 2px 6px rgba(0,0,0,.55); }
+    .handle:active { cursor: grabbing; box-shadow: 0 0 0 8px rgba(242,242,242,.14), 0 2px 6px rgba(0,0,0,.55); }
+    .handle:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
     .handle::after {
       content: attr(data-value);
       position: absolute; left: 50%; transform: translateX(-50%);
       top: -21px; padding: 1px 5px; border-radius: 3px;
-      background: #000; color: #f2f2f2;
-      font: 700 11px/1.5 inherit; font-variant-numeric: tabular-nums;
+      background: #000; color: var(--text);
+      font-family: inherit; font-size: 11px; font-weight: 700; line-height: 1.5;
+      font-variant-numeric: tabular-nums;
     }
 
     .ticks {
       position: absolute; top: 42px; left: 0; right: 0;
       display: flex; justify-content: space-between;
-      font-size: 9.5px; color: #6b6b6b; font-variant-numeric: tabular-nums;
+      font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums;
     }
 
     .legend { display: flex; gap: 6px; }
     .legend div {
-      flex: 1; padding: 7px 8px; border-radius: 4px; background: #101010;
-      font-size: 11.5px; color: #a3a3a3; text-align: center;
+      flex: 1; padding: 7px 6px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-1);
+      font-size: 11px; color: var(--text-2); text-align: center;
     }
-    .legend b { display: block; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .legend b { display: block; margin-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
     .legend .l b { color: var(--red); }
     .legend .m b { color: var(--amber); }
     .legend .h b { color: var(--green); }
 
+    /* --- the dim filter ---------------------------------------------------- */
     .switch {
-      display: flex; align-items: center; gap: 9px;
-      padding: 9px 11px; border-radius: 4px; background: #101010;
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 11px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
       font-size: 12.5px; cursor: pointer; user-select: none;
+      transition: border-color .12s ease;
     }
-    .switch input { width: 15px; height: 15px; margin: 0; accent-color: #e50914; cursor: pointer; }
+    .switch:hover { border-color: var(--line-hi); }
+    /* The checkbox keeps every bit of its native behaviour — click, space,
+       label association — and only hands its appearance to the span next to
+       it, which can be drawn as the on/off object it actually is. */
+    .switch input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+    .toggle {
+      position: relative; flex: none;
+      width: 34px; height: 20px; border-radius: 999px;
+      background: #3d3d3d;
+      transition: background-color .15s ease;
+    }
+    .toggle::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #f2f2f2;
+      transition: transform .15s ease, background-color .15s ease;
+    }
+    .switch input:checked + .toggle { background: var(--green); }
+    .switch input:checked + .toggle::after { transform: translateX(14px); background: #0b0b0b; }
+    .switch input:focus-visible + .toggle { outline: 2px solid var(--focus); outline-offset: 2px; }
     .switch b { color: var(--green); font-variant-numeric: tabular-nums; }
 
-    .filter-min { margin-top: 10px; opacity: 1; transition: opacity .15s ease; }
-    .filter-min[data-off="yes"] { opacity: .35; pointer-events: none; }
+    .filter-min { transition: opacity .15s ease; }
+    .filter-min[data-off="yes"] { opacity: .4; }
     .filter-min input[type="range"] {
-      width: 100%; margin: 0; accent-color: #46d369; cursor: pointer;
+      display: block; width: 100%; margin: 0;
+      accent-color: var(--green); cursor: pointer;
     }
+    .filter-min input[type="range"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+    .filter-min input[type="range"]:disabled { cursor: not-allowed; }
     .filter-min .ends {
       display: flex; justify-content: space-between;
-      font-size: 9.5px; color: #6b6b6b; font-variant-numeric: tabular-nums;
+      margin-top: 2px;
+      font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums;
     }
 
-    #status { margin-top: 12px; min-height: 18px; font-size: 12.5px; color: var(--green); }
+    /* --- the confirmation toast --------------------------------------------
+       Pinned to the viewport rather than sitting in the flow, so a message
+       that lasts two seconds never reflows the page under the cursor. */
+    #status {
+      position: fixed; left: 50%; bottom: 14px;
+      transform: translateX(-50%);
+      max-width: calc(100% - 28px);
+      padding: 8px 13px; border-radius: 999px;
+      background: #000; border: 1px solid #2f2f2f;
+      box-shadow: 0 6px 20px rgba(0,0,0,.6);
+      color: var(--green); font-size: 12px; font-weight: 600;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    #status:empty { opacity: 0; transform: translate(-50%, 8px); }
     #status[data-kind="error"] { color: var(--red); }
+
+    /* Nothing here needs motion to be understood, so an OS-level request for
+       less of it removes all of it — including the two spinners, which say
+       nothing their accompanying text doesn't. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+      }
+      .state[data-ok="busy"] .dot { opacity: 1; }
+      .mstatus[data-kind="busy"]::before { display: none; }
+      .btn:active:not(:disabled) { transform: none; }
+    }
   </style>
 </head>
 <body>
-  <h1>IMDb Ratings for Netflix</h1>
-  <p>No API key needed — ratings come from IMDb's own published dataset.</p>
+  <header class="page-head">
+    <h1>IMDb Ratings for Netflix</h1>
+    <p class="lede">No API key needed — ratings come from IMDb's own published dataset.</p>
+  </header>
 
-  <h2>Ratings data</h2>
-  <div class="state" id="dataState" data-ok="no">
-    <span class="dot"></span><span id="dataText">Checking…</span>
-  </div>
-  <div class="row">
-    <button id="refresh">Refresh dataset</button>
-    <button id="clearTitles" class="secondary">Clear matches</button>
-  </div>
+  <main class="stack">
 
-  <hr>
+    <section class="card" aria-labelledby="h-data">
+      <h2 id="h-data">Ratings data</h2>
+      <div class="state" id="dataState" data-ok="no">
+        <span class="dot" aria-hidden="true"></span><span id="dataText">Checking…</span>
+      </div>
+      <div class="row">
+        <button id="refresh" type="button" class="btn primary">Refresh dataset</button>
+        <button id="clearTitles" type="button" class="btn">Clear matches</button>
+      </div>
+    </section>
 
-  <h2>Rating colours</h2>
-  <p>Drag to move where the colours change. Netflix updates as you drag.</p>
+    <section class="card" aria-labelledby="h-match">
+      <h2 id="h-match">Fix a wrong match</h2>
+      <p class="hint" id="matchHint">Some titles land on the wrong IMDb entry — a sequel matched to
+        season one, or a namesake with 132 votes. Search the name exactly as the card shows it,
+        then pin the right one.</p>
 
-  <div class="scale" id="scale">
-    <div class="track">
-      <div class="band low"  id="bandLow"></div>
-      <div class="band mid"  id="bandMid"></div>
-      <div class="band high" id="bandHigh"></div>
-    </div>
-    <div class="ticks"><span>0</span><span>5</span><span>10</span></div>
-    <button class="handle" id="handleMid"  role="slider" aria-label="Where red becomes amber"
-            aria-valuemin="0" aria-valuemax="10"></button>
-    <button class="handle" id="handleHigh" role="slider" aria-label="Where amber becomes green"
-            aria-valuemin="0" aria-valuemax="10"></button>
-  </div>
+      <form class="find" id="matchForm">
+        <label class="sr-only" for="matchTitle">Netflix title</label>
+        <input class="field" id="matchTitle" type="text" placeholder="Title as Netflix shows it"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               aria-describedby="matchHint">
+        <button id="matchSearch" type="submit" class="btn primary">Search</button>
+      </form>
 
-  <div class="legend">
-    <div class="l">skip<b id="lblLow">—</b></div>
-    <div class="m">maybe<b id="lblMid">—</b></div>
-    <div class="h">worth it<b id="lblHigh">—</b></div>
-  </div>
+      <p class="mstatus" id="matchStatus" role="status" hidden></p>
+      <ul class="cands" id="matchList" hidden></ul>
 
-  <div class="row">
-    <button id="resetTiers" class="secondary">Reset to defaults</button>
-  </div>
+      <div class="row">
+        <button id="matchRetry" type="button" class="btn" hidden>Try again</button>
+        <button id="matchReset" type="button" class="btn quiet" disabled>Reset this title</button>
+      </div>
+    </section>
 
-  <hr>
+    <section class="card" aria-labelledby="h-colours">
+      <h2 id="h-colours">Rating colours</h2>
+      <p class="hint">Drag to move where the colours change. Netflix updates as you drag.</p>
 
-  <h2>Dim what I'd skip</h2>
-  <p>Pushes low-rated titles into the background, so a row reads as a shortlist.
-     Titles with no rating are never dimmed — no rating isn't a bad rating.</p>
+      <div class="scale" id="scale" role="group" aria-label="Colour thresholds">
+        <div class="track">
+          <div class="band low"  id="bandLow"></div>
+          <div class="band mid"  id="bandMid"></div>
+          <div class="band high" id="bandHigh"></div>
+        </div>
+        <div class="ticks" aria-hidden="true"><span>0</span><span>5</span><span>10</span></div>
+        <button class="handle" id="handleMid" type="button" role="slider"
+                aria-label="Where red becomes amber"
+                aria-valuemin="0" aria-valuemax="10"></button>
+        <button class="handle" id="handleHigh" type="button" role="slider"
+                aria-label="Where amber becomes green"
+                aria-valuemin="0" aria-valuemax="10"></button>
+      </div>
 
-  <label class="switch" for="filterEnabled">
-    <input type="checkbox" id="filterEnabled">
-    <span>Dim anything below <b id="filterMinLabel">7.5</b></span>
-  </label>
+      <div class="legend">
+        <div class="l">skip<b id="lblLow">—</b></div>
+        <div class="m">maybe<b id="lblMid">—</b></div>
+        <div class="h">worth it<b id="lblHigh">—</b></div>
+      </div>
 
-  <div class="filter-min" id="filterMinWrap">
-    <input type="range" id="filterMin" min="0" max="10" step="0.1">
-    <div class="ends"><span>0</span><span>10</span></div>
-  </div>
+      <div class="row">
+        <button id="resetTiers" type="button" class="btn quiet">Reset to defaults</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-dim">
+      <h2 id="h-dim">Dim what I'd skip</h2>
+      <p class="hint">Pushes low-rated titles into the background, so a row reads as a shortlist.
+        Titles with no rating are never dimmed — no rating isn't a bad rating.</p>
+
+      <label class="switch" for="filterEnabled">
+        <input type="checkbox" id="filterEnabled" role="switch">
+        <span class="toggle" aria-hidden="true"></span>
+        <span>Dim anything below <b id="filterMinLabel">7.5</b></span>
+      </label>
+
+      <div class="filter-min" id="filterMinWrap">
+        <label class="sr-only" for="filterMin">Dim below this rating</label>
+        <!-- Matches the label's printed default, so the two don't disagree for
+             the frame before the saved value loads. -->
+        <input type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
+        <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
+      </div>
+    </section>
+
+  </main>
 
   <div id="status" role="status"></div>
 

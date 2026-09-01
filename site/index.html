@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMDb Ratings for Netflix — the rating, on the card</title>
+<meta name="description" content="A free, open-source Chrome extension that puts colour-coded IMDb ratings straight onto Netflix cards. No API key, no account, and no server anywhere.">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <span class="brand-dot" data-tier="high"></span>
+        <span class="brand-dot" data-tier="mid"></span>
+        <span class="brand-dot" data-tier="low"></span>
+      </span>
+      <span class="brand-name">IMDb Ratings <span class="brand-thin">for Netflix</span></span>
+    </a>
+    <nav class="head-nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#filter">The filter</a>
+      <a href="#server">No server</a>
+      <a href="#coverage">Coverage</a>
+      <a href="#pricing">Pricing</a>
+    </nav>
+    <a class="btn btn-sm btn-primary head-cta" href="https://github.com/hariprasath891996/netflix-imdb-ratings">Get it on GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ───────────────────────── hero ───────────────────────── -->
+  <section class="hero" id="top">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-inner">
+
+      <p class="eyebrow">Free · Open source · No account</p>
+
+      <h1 class="hero-title">Pick something without<br>opening a second tab.</h1>
+
+      <p class="hero-sub">
+        A Chrome extension that puts colour-coded IMDb ratings straight onto Netflix
+        cards — so a whole row reads at a glance, before you click anything.
+      </p>
+
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="https://github.com/hariprasath891996/netflix-imdb-ratings">Get it on GitHub</a>
+        <a class="btn btn-ghost" href="#how">How it works</a>
+      </div>
+
+      <p class="hero-note">
+        Installs unpacked from source in about a minute. There is nothing to sign up for.
+      </p>
+
+      <!-- the demo row -->
+      <div class="demo">
+        <div class="demo-chrome" aria-hidden="true">
+          <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+          <span class="demo-url">a browse row, with the extension on</span>
+        </div>
+
+        <p class="row-label">Top picks</p>
+
+        <ul class="row" role="list">
+          <li class="tile" style="--a:#1d3b4a; --b:#0d1a22;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>8.6</span>
+            <span class="tile-title">Northbound</span>
+          </li>
+          <li class="tile" style="--a:#4a2f22; --b:#1c1210;">
+            <span class="badge" data-tier="mid"><span class="sr-only">IMDb rating: </span>7.1</span>
+            <span class="tile-title">The Quiet Season</span>
+          </li>
+          <li class="tile tile-flag" style="--a:#3a2148; --b:#150e1d;">
+            <span class="badge" data-tier="high" data-confidence="low"><span class="sr-only">IMDb rating, low confidence: </span>8.9</span>
+            <span class="tile-title">Paper Lanterns</span>
+          </li>
+          <li class="tile" style="--a:#4a1f27; --b:#1b0d10;">
+            <span class="badge" data-tier="low"><span class="sr-only">IMDb rating: </span>6.2</span>
+            <span class="tile-title">Second Sun</span>
+            <span class="tile-progress" aria-hidden="true"><i style="width:38%"></i></span>
+          </li>
+          <li class="tile" style="--a:#243f2c; --b:#0e1a12;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>7.8</span>
+            <span class="tile-title">Ghost Town Radio</span>
+          </li>
+          <li class="tile" style="--a:#2b2f3d; --b:#111318;">
+            <span class="badge" data-tier="unknown"><span class="sr-only">No IMDb rating found: </span>–</span>
+            <span class="tile-title">Behind the Reel</span>
+          </li>
+          <li class="tile" style="--a:#4a4126; --b:#1a1710;">
+            <span class="badge" data-tier="mid"><span class="sr-only">IMDb rating: </span>6.9</span>
+            <span class="tile-title">Salt Flats</span>
+          </li>
+        </ul>
+
+        <div class="annot">
+          <span class="annot-line" aria-hidden="true"></span>
+          <p class="annot-text">
+            <strong>The dashed one is deliberate.</strong> An 8.9 from 74 votes gets a dashed
+            outline, so it can never masquerade as an 8.7 from 2.3 million.
+          </p>
+        </div>
+
+        <p class="demo-caption">
+          Artwork and titles above are illustrative. The badge is the real one:
+          top-right, dark plate, coloured hairline, tabular numerals.
+        </p>
+      </div>
+
+      <ul class="legend" role="list">
+        <li><span class="swatch" data-tier="high"></span> Worth it</li>
+        <li><span class="swatch" data-tier="mid"></span> Maybe</li>
+        <li><span class="swatch" data-tier="low"></span> Skip</li>
+        <li><span class="swatch" data-tier="unknown"></span> No rating found</li>
+        <li class="legend-note">Cut-offs are yours to drag.</li>
+      </ul>
+
+    </div>
+  </section>
+
+  <!-- ───────────────────────── problem ───────────────────────── -->
+  <section class="band problem">
+    <div class="wrap narrow">
+      <p class="statement">
+        Netflix doesn't show you IMDb ratings. So choosing means opening a second tab
+        for every title that looks vaguely interesting — search, squint at the number,
+        close the tab, go back, and by the fourth one you've stopped choosing and started
+        scrolling. Four hundred cards, all equally bright, none of them telling you anything.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── how it works ───────────────────────── -->
+  <section class="band" id="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2 class="h2">Three steps, and only one of them touches the network.</h2>
+
+      <ol class="steps" role="list">
+        <li class="step">
+          <span class="step-num" aria-hidden="true">01</span>
+          <h3 class="step-h">Import the ratings once</h3>
+          <p>
+            IMDb publishes every rated title as a bulk dataset — 1.7 million rows,
+            about 8&nbsp;MB gzipped, regenerated daily. On first run the extension imports
+            it onto your own machine, which takes roughly a minute, and refreshes it once
+            on each day you use it. After that, looking up a rating is a local read.
+          </p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">02</span>
+          <h3 class="step-h">Match the name to the title</h3>
+          <p>
+            Netflix only gives a display name, and that name frequently isn't IMDb's.
+            One small lookup resolves it to an IMDb id, then caches the answer permanently —
+            each title costs one lookup once, ever. Because the ratings index is already
+            local, the extension can check whether a candidate is actually rated
+            <em>while</em> it picks, at no network cost.
+          </p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">03</span>
+          <h3 class="step-h">Badge what you're looking at</h3>
+          <p>
+            Badges appear on cards as you scroll to them, never all at once, and a Netflix
+            tab sitting in the background is left alone entirely. The badge sits top-right
+            because Netflix uses the top-left corner for its own ribbon and the bottom-left
+            for its own tags.
+          </p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── dim filter ───────────────────────── -->
+  <section class="band band-alt" id="filter">
+    <div class="wrap">
+      <p class="eyebrow">The filter</p>
+      <h2 class="h2">Turn a homepage into a shortlist.</h2>
+      <p class="lead">
+        Set your bar and everything below it recedes. Nothing is hidden and nothing is
+        blocked — dimmed cards still hover, still click, and come back to full brightness
+        the moment you point at one.
+      </p>
+
+      <div class="filter-demo">
+        <div class="controls">
+          <div class="ctrl-row">
+            <label class="switch" for="dim-toggle">
+              <input type="checkbox" id="dim-toggle" checked>
+              <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+              <span class="switch-label">Dim what I'd skip</span>
+            </label>
+          </div>
+
+          <div class="ctrl-row slider-row">
+            <label for="dim-threshold">Minimum rating</label>
+            <input type="range" id="dim-threshold" min="5" max="9" step="0.1" value="7.4"
+                   aria-describedby="dim-status">
+            <output class="ctrl-value" id="dim-value" for="dim-threshold">7.4</output>
+          </div>
+
+          <p class="ctrl-status" id="dim-status" role="status">
+            <span id="dim-count">4</span> of <span id="dim-total">9</span> rated titles are above your bar.
+            <span class="ctrl-hint">Unrated titles are never dimmed.</span>
+          </p>
+        </div>
+
+        <ul class="grid" id="dim-grid" role="list" data-dim="on">
+          <li class="tile" data-rating="8.4" style="--a:#1f3d4a; --b:#0c1a20;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>8.4</span><span class="tile-title">Harbour Lights</span>
+          </li>
+          <li class="tile" data-rating="6.4" style="--a:#432430; --b:#180d12;">
+            <span class="badge" data-tier="low"><span class="sr-only">IMDb rating: </span>6.4</span><span class="tile-title">The Long Commute</span>
+          </li>
+          <li class="tile" data-rating="7.9" style="--a:#26402c; --b:#0d1a11;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>7.9</span><span class="tile-title">Monsoon Hours</span>
+          </li>
+          <li class="tile" data-rating="5.8" style="--a:#3f2a1e; --b:#17100b;">
+            <span class="badge" data-tier="low"><span class="sr-only">IMDb rating: </span>5.8</span><span class="tile-title">Cold Open</span>
+          </li>
+          <li class="tile" data-rating="7.2" style="--a:#33284a; --b:#120f1c;">
+            <span class="badge" data-tier="mid"><span class="sr-only">IMDb rating: </span>7.2</span><span class="tile-title">Nightingale Street</span>
+          </li>
+          <li class="tile" data-rating="8.8" style="--a:#1d4440; --b:#0b1c1a;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>8.8</span><span class="tile-title">The Fourth Wall</span>
+          </li>
+          <li class="tile" data-rating="" style="--a:#2c2f3a; --b:#111318;">
+            <span class="badge" data-tier="unknown"><span class="sr-only">No IMDb rating found: </span>–</span><span class="tile-title">Untitled, 2026</span>
+          </li>
+          <li class="tile" data-rating="6.8" style="--a:#463a20; --b:#19150c;">
+            <span class="badge" data-tier="mid"><span class="sr-only">IMDb rating: </span>6.8</span><span class="tile-title">Sparrow &amp; Sons</span>
+          </li>
+          <li class="tile" data-rating="9.1" style="--a:#153a2a; --b:#081712;">
+            <span class="badge" data-tier="high"><span class="sr-only">IMDb rating: </span>9.1</span><span class="tile-title">Ten Winters</span>
+          </li>
+          <li class="tile" data-rating="6.1" style="--a:#452029; --b:#190c10;">
+            <span class="badge" data-tier="low"><span class="sr-only">IMDb rating: </span>6.1</span><span class="tile-title">Rerun</span>
+          </li>
+        </ul>
+      </div>
+
+      <p class="micro">
+        A live demonstration built from the extension's own rules. In the extension the two
+        colour boundaries are draggable on a 0–10 scale as well, and an open Netflix tab
+        recolours as you drag — only the colour mapping changes, so nothing is looked up again.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── no server ───────────────────────── -->
+  <section class="band" id="server">
+    <div class="wrap">
+      <p class="eyebrow">The difference that matters</p>
+      <h2 class="h2">There is no server to go down.</h2>
+      <p class="lead">
+        Rating extensions normally route every badge, for every user, through a box the
+        developer pays for. That box is the product's whole existence: when it stops, everyone
+        stops at once, and no user can do a single thing about it. This one has nothing to stop.
+      </p>
+
+      <div class="compare">
+        <article class="cmp cmp-them">
+          <h3 class="cmp-h">The usual architecture</h3>
+          <div class="flow" aria-hidden="true">
+            <span class="node">Every user</span>
+            <span class="arrow"></span>
+            <span class="node node-hot">One server<span class="node-tag">single point of failure</span></span>
+            <span class="arrow"></span>
+            <span class="node">Ratings</span>
+          </div>
+          <p class="cmp-p">
+            Every rating is a request to one host. It can be slow, rate-limited, out of budget,
+            or simply gone — and the extension on your machine has no fallback, because the
+            data was never yours.
+          </p>
+        </article>
+
+        <article class="cmp cmp-us">
+          <h3 class="cmp-h">This extension</h3>
+          <div class="flow" aria-hidden="true">
+            <span class="node">IMDb's public dataset</span>
+            <span class="arrow"></span>
+            <span class="node node-good">Your machine<span class="node-tag">refreshed daily</span></span>
+          </div>
+          <p class="cmp-p">
+            The full ratings index lives on your computer, downloaded from IMDb's own published
+            bulk dataset. Nothing is scraped, nothing is proxied, nothing is metered. The one
+            network call left — turning a name into an IMDb id — happens once per title and is
+            then cached forever.
+          </p>
+        </article>
+      </div>
+
+      <ul class="pills" role="list">
+        <li class="pill">No API key</li>
+        <li class="pill">No account</li>
+        <li class="pill">No sign-up</li>
+        <li class="pill">No server of its own</li>
+        <li class="pill">Nothing to rate-limit</li>
+        <li class="pill">MIT licensed</li>
+      </ul>
+
+      <p class="micro">
+        The practical consequence: it costs nothing to keep running, so it doesn't need revenue
+        to survive. Install it and it works — including on the day nobody is maintaining it.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── coverage ───────────────────────── -->
+  <section class="band band-alt" id="coverage">
+    <div class="wrap">
+      <p class="eyebrow">Coverage, measured</p>
+      <h2 class="h2">98.8% of a real homepage.</h2>
+      <p class="lead">
+        Counted against 430 actual titles from an Indian Netflix homepage — a catalogue heavy
+        in Korean drama, Tamil and Telugu cinema, and anime, which is exactly where
+        rating lookups usually fall apart.
+      </p>
+
+      <div class="stat-wrap">
+        <div class="stat">
+          <p class="stat-big">98.8<span class="stat-pct">%</span></p>
+          <p class="stat-cap">425 of 430 titles had an IMDb rating. Five didn't — trailers and
+            unreleased films genuinely have nothing to show, and grey is the honest answer there.</p>
+        </div>
+
+        <div class="bars">
+          <div class="bar-row">
+            <p class="bar-label">This extension <span class="bar-num">98.8%</span></p>
+            <div class="bar"><span class="bar-fill bar-ours" style="--w:98.8%"></span></div>
+          </div>
+          <div class="bar-row">
+            <p class="bar-label">The same 430 titles through a third-party ratings API
+              <span class="bar-num">86%</span></p>
+            <div class="bar"><span class="bar-fill bar-theirs" style="--w:86%"></span></div>
+          </div>
+          <p class="bar-foot">
+            The gap was mostly not missing data. It was alias resolution.
+          </p>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <article class="card">
+          <h3 class="card-h">It handles the names Netflix gets wrong</h3>
+          <p class="card-p">
+            24 of those 425 matched an IMDb entry filed under a different name. When that
+            happens the badge's tooltip tells you which entry it matched, so a bad match is
+            visible rather than silent.
+          </p>
+          <table class="alias">
+            <caption class="sr-only">Netflix display names and the corresponding IMDb titles</caption>
+            <thead>
+              <tr><th scope="col">Netflix's label</th><th scope="col">IMDb's title</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Laapataa Ladies</td><td>Lost Ladies</td></tr>
+              <tr><td>Hello, My Twenties!</td><td>Age of Youth</td></tr>
+              <tr><td>My Liberation Notes</td><td>My Liberation Diary</td></tr>
+              <tr><td>Misaeng: Incomplete Life</td><td>Misaeng</td></tr>
+              <tr><td>Couple on the Backtrack</td><td>Go Back Couple</td></tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <h3 class="card-h">It flags thin evidence</h3>
+          <p class="card-p">
+            A rating resting on very few votes is drawn with a dashed outline instead of a solid
+            one. An 8.9 from 74 people should not look like an 8.7 from 2.3 million, and in
+            practice the dash catches bad matches too: a famous series showing 90 votes has
+            resolved to the wrong entry, and the dash is the tell.
+          </p>
+          <div class="proof" aria-hidden="true">
+            <span class="proof-item"><span class="badge badge-static" data-tier="high"><span class="sr-only">IMDb rating: </span>8.7</span> solid — millions of votes</span>
+            <span class="proof-item"><span class="badge badge-static" data-tier="high" data-confidence="low"><span class="sr-only">IMDb rating, low confidence: </span>8.9</span> dashed — take it with salt</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── pricing ───────────────────────── -->
+  <section class="band" id="pricing">
+    <div class="wrap">
+      <p class="eyebrow">Pricing</p>
+      <h2 class="h2">Everything described above is free.</h2>
+      <p class="lead">
+        The extension is MIT licensed and open source, and it has no running costs to recover.
+        A paid tier is being considered for the bigger features on the roadmap — it does not
+        exist yet, and there is nothing to buy today.
+      </p>
+
+      <div class="plans">
+        <article class="plan plan-free">
+          <p class="plan-name">Free</p>
+          <p class="plan-price">$0 <span class="plan-per">/ forever, MIT licensed</span></p>
+          <p class="plan-sub">The extension as it stands today.</p>
+          <ul class="plan-list" role="list">
+            <li>Colour-coded IMDb ratings on browse rows</li>
+            <li>Draggable thresholds, live recolour</li>
+            <li>Dim everything below your bar</li>
+            <li>Alias resolution with a tooltip that names the match</li>
+            <li>Dashed badge for low-vote ratings</li>
+            <li>Local dataset, refreshed daily — no account, no server</li>
+          </ul>
+          <a class="btn btn-primary btn-block" href="https://github.com/hariprasath891996/netflix-imdb-ratings">Get it on GitHub</a>
+          <p class="plan-foot">Clone the repo and load it unpacked in Chrome.</p>
+        </article>
+
+        <article class="plan plan-pro">
+          <p class="plan-name">Pro <span class="tag">Planned</span></p>
+          <p class="plan-price plan-price-tbd">Not priced</p>
+          <p class="plan-sub">Ideas from the roadmap. None of this is built yet.</p>
+          <ul class="plan-list" role="list">
+            <li>Correct a wrong match per title, instead of clearing every cached match</li>
+            <li>Sort a genre or category grid by rating</li>
+            <li>Badges on search results, then the other surfaces where you choose</li>
+          </ul>
+          <button class="btn btn-ghost btn-block" type="button" disabled>Coming soon</button>
+          <p class="plan-foot">No price has been set and there is nothing to check out.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── faq ───────────────────────── -->
+  <section class="band band-alt" id="faq">
+    <div class="wrap narrow">
+      <p class="eyebrow">Questions</p>
+      <h2 class="h2">The honest answers.</h2>
+
+      <div class="faq">
+        <details class="q">
+          <summary>Do I need an API key or an account?</summary>
+          <p>No. There is no sign-up, no key to paste, and no login screen. You install it and it works.</p>
+        </details>
+
+        <details class="q">
+          <summary>How do I install it?</summary>
+          <p>Clone or download the repository, open <code>chrome://extensions</code>, turn on
+            Developer mode, click <strong>Load unpacked</strong> and select the folder, then open
+            Netflix. The first run imports IMDb's dataset — about 8&nbsp;MB, roughly a minute —
+            and badges appear as soon as it finishes.</p>
+        </details>
+
+        <details class="q">
+          <summary>Where do the ratings actually come from?</summary>
+          <p>From IMDb's own published bulk dataset: 1.7 million rated titles, regenerated daily,
+            downloaded to your machine and refreshed once on each day you use the extension.
+            Ratings are not scraped, and they are not fetched through anyone's server.</p>
+        </details>
+
+        <details class="q">
+          <summary>What is the one network call you keep mentioning?</summary>
+          <p>The dataset is keyed by IMDb id, but Netflix only gives a display name. Resolving a
+            name to an id uses IMDb's public suggestion endpoint — about a kilobyte of JSON, once
+            per title, cached permanently after that. It is the JSON that powers IMDb's own search
+            box rather than a supported API, so it could change without notice.</p>
+        </details>
+
+        <details class="q">
+          <summary>Can I change the colours or the cut-offs?</summary>
+          <p>Yes. The defaults are green at 7.5 and above, amber from 6.5 to 7.4, red below 6.5,
+            grey when no rating was found. Those are a taste call, not a fact, so both boundaries
+            drag along a 0–10 scale in the settings and an open Netflix tab recolours as you drag.</p>
+        </details>
+
+        <details class="q">
+          <summary>What if a badge is on the wrong film?</summary>
+          <p>It can happen. Matching is by name without a year, because Netflix cards don't show
+            one, so remakes and sequels can resolve to the wrong entry — a season 2 title can land
+            on season 1. The tooltip names the matched IMDb title and year precisely so a bad match
+            is visible instead of silent, and <strong>Clear matches</strong> in the settings forces a
+            fresh resolution.</p>
+        </details>
+
+        <details class="q">
+          <summary>Why is a card grey?</summary>
+          <p>Because no IMDb rating was found for it. Grey is not a bad score, which is why the dim
+            filter never touches an unrated title — dimming them would bury exactly the new and
+            regional titles worth discovering.</p>
+        </details>
+
+        <details class="q">
+          <summary>Does it slow Netflix down?</summary>
+          <p>Ratings are read locally, so lookups aren't waiting on a network. Badges are only
+            requested for cards you actually scroll into view, and a Netflix tab sitting in the
+            background is left alone entirely.</p>
+        </details>
+
+        <details class="q">
+          <summary>Firefox? Safari? Prime Video?</summary>
+          <p>Not yet. It is a Manifest V3 extension, so Chrome today; Firefox would need small
+            changes. The rating pipeline itself is platform-agnostic — only card detection and title
+            extraction are Netflix-shaped — so other streaming services are on the roadmap rather
+            than in the build.</p>
+        </details>
+
+        <details class="q">
+          <summary>What could break it?</summary>
+          <p>Netflix's HTML is not a contract. Cards are found through Netflix's own
+            test-automation attributes, which are far more stable than class names that change every
+            deploy, but they are free to rename them. If badges ever silently stop appearing, that is
+            almost always why — and because the whole thing is open source, the fix is two functions
+            away rather than out of your hands.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── final cta ───────────────────────── -->
+  <section class="band closer">
+    <div class="wrap narrow center">
+      <h2 class="h2 closer-h">Stop opening the second tab.</h2>
+      <p class="lead center-p">
+        Free, open source, and about a minute from here to a homepage that tells you
+        what's worth your evening.
+      </p>
+      <div class="hero-cta center-cta">
+        <a class="btn btn-primary" href="https://github.com/hariprasath891996/netflix-imdb-ratings">Get it on GitHub</a>
+        <a class="btn btn-ghost" href="#faq">Read the caveats first</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-inner">
+    <div class="foot-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <span class="brand-dot" data-tier="high"></span>
+        <span class="brand-dot" data-tier="mid"></span>
+        <span class="brand-dot" data-tier="low"></span>
+      </span>
+      <p class="foot-name">IMDb Ratings for Netflix</p>
+      <p class="foot-lic">MIT licensed. Free forever, because it costs nothing to run.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer">
+      <a href="https://github.com/hariprasath891996/netflix-imdb-ratings">Source on GitHub</a>
+      <a href="#how">How it works</a>
+      <a href="#coverage">Coverage</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="disclaimer">
+      An independent, community-built tool. Not affiliated with, endorsed by, or sponsored by
+      Netflix or IMDb. Netflix and IMDb are the trademarks of their respective owners, referred to
+      here only to describe what this extension does.
+    </p>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
