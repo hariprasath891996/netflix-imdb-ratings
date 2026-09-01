@@ -35,20 +35,39 @@ film?** That is core. Everything else is polish, however pleasant.
 
 ### Pending — core
 
-| Feature | Why it matters | Blocker |
-| --- | --- | --- |
-| Sort a grid by rating | Genre pages are grids. Sorting one ranks the catalogue for you rather than annotating it. | None — next up. |
+Ordered by value. "Needs" names the IMDb dataset file a feature depends on;
+`ratings` (8 MB) is already imported.
+
+| Feature | Why it matters | Needs | Blocker |
+| --- | --- | --- | --- |
+| Type & year disambiguation | **The largest correctness problem left.** 184 of 426 titles on a real homepage (43%) share their name with other IMDb entries — three separate "Person of Interest", two "Zodiac", three "The Call". Today we pick the first same-named entry that happens to carry a rating, which among three candidates is close to a coin flip. `titleType` and `startYear` decide it properly. | `basics` | Type is available now via the preview modal's "5 Seasons". Year needs a year read from Netflix to compare against. |
+| Episode ratings / season strip | The differentiator. 880k rated episodes exist. Netflix will let you start season 5 of a show that collapsed in season 3 and never warns you. A per-season strip answers "is this still worth continuing?" — a real question with no current answer anywhere. No competitor does this. | `episode` | None. |
+| Is it finished? | 76% of the series on a real homepage have ended. Whether a show completed or was cancelled mid-story changes whether you start a five-season commitment, and nothing in Netflix's UI says. | `basics` (`endYear`) | None. |
+| Sort a grid by rating | Genre pages and My List are grids. Sorting one ranks the catalogue rather than annotating it. | — | None. |
 
 ### Pending — good to have
 
-| Feature | Why it matters | Blocker |
-| --- | --- | --- |
-| Netflix's hidden genres | Hundreds of unlisted category IDs. Answers "what else is there" rather than "is this good". | Biggest scope expansion on the list. |
-| Best-in-row highlight | Marks the strongest card in rows you'd otherwise skim past. | None. |
-| Faster first import | Shipping a pre-filtered index would cut the ~30s first run. | None. |
-| Series/film disambiguation | The preview modal knows "5 Seasons" — that could separate a series from a same-named film. | Only available on hover, so limited reach. |
-| Firefox port | Manifest V3 with small changes. | Only worth it if Firefox is actually used. |
-| Disney+ | Third target platform. | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it cannot be built or verified from here. |
+| Feature | Why it matters | Needs | Blocker |
+| --- | --- | --- | --- |
+| Runtime filter | "I have 90 minutes" — time is the real weeknight constraint, and Netflix offers no way to filter on it. Present on 94.8% of homepage titles. | `basics` | **Must apply to films only.** For a series `runtimeMinutes` is the *episode* length, so filtering series on it is meaningless. |
+| Movies-only / series-only | A homepage is 54% series, 37% films. | `basics` | Netflix's own nav partly covers this. |
+| Genre filter | Filter a row by genre without leaving for Netflix's genre pages. Genres present on ~99%. | `basics` | None. |
+| Offline alias resolution | `primaryTitle` + `originalTitle` differ on 38% of titles and already resolve "Laapataa Ladies" → "Lost Ladies" locally. Would cut the one remaining network call to near zero and reduce reliance on an undocumented endpoint. | `basics` | Partial only — "My Liberation Notes" is filed as "My Liberation Diary" and appears in neither field. Full coverage needs `akas` (489 MB), which is too large to carry. |
+| Surface hidden gems | High rating on modest votes means under-seen, not bad. The dashed badge currently reads that as a warning; it could equally be a recommendation. | — | Needs a rule that distinguishes under-seen from badly-matched, which today look identical. |
+| Netflix's hidden genres | Hundreds of unlisted category IDs. Answers "what else is there" rather than "is this good". | — | Biggest scope expansion on the list. |
+| Best-in-row highlight | Marks the strongest card in rows you'd otherwise skim past. | — | None. |
+| Faster first import | A pre-filtered index would cut the ~30s first run. | — | Works against the larger imports above. |
+| Firefox port | Manifest V3 with small changes. | — | Only worth it if Firefox is actually used. |
+| Disney+ | Third target platform. Real selectors are known (`set-item`, `set-shelf-item`) but unverified. | — | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here. |
+
+### On import cost
+
+Adding `basics` does **not** mean a 216 MB daily download. A film's year, runtime
+and genre are immutable — only new rows are ever appended — so `basics` and
+`episode` refresh monthly while `ratings` stays daily. Measured: for the 84% of
+a homepage above 5,000 votes, shifting a badge by 0.1 would take 1,843 new votes
+all landing two points off the average, so ratings barely move either. The cost
+of these features is a larger one-time install, not a recurring burden.
 
 ### Dropped — and why
 
