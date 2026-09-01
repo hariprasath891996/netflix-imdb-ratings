@@ -18,24 +18,35 @@
 //
 //   Title ID - the one thing the datasets can't do is turn "Laapataa Ladies"
 //              into tt21626284, because Netflix's label is often not IMDb's
-//              title (that film is filed as "Lost Ladies"). IMDb's own
-//              suggestion endpoint resolves it in ~1 KB of JSON. Cached
-//              permanently per title, so each one costs a single small call
-//              once, ever.
+//              title. IMDb's own suggestion endpoint resolves it in ~1 KB of
+//              JSON. Cached permanently per title, so each one costs a single
+//              small call once, ever.
+//
+//              Except that basics half-can: that film is filed under
+//              primaryTitle "Lost Ladies" *and* originalTitle "Laapataa
+//              Ladies", and we already hold both for every rated title. So the
+//              two title columns are turned into a local name index at the end
+//              of the basics import and consulted first — see buildTitleIndex.
+//              It is an optimisation, not a replacement: "My Liberation Notes"
+//              is filed as "My Liberation Diary" under both columns and only
+//              the endpoint knows that.
 //
 // The content script never talks to any of them; it just asks us for a title.
 
 const SUGGEST_BASE = "https://v2.sg.media-imdb.com/suggestion/x/";
 
 const DB_NAME = "nrx";
-// v2 added the basics and episodes stores. The upgrade only creates what is
-// missing, so an install that already spent a minute importing 1.7M ratings
-// keeps them.
-const DB_VERSION = 2;
+// v2 added the basics and episodes stores, v3 the local title index. The
+// upgrade only creates what is missing, so an install that already spent a
+// minute importing 1.7M ratings keeps them — and because the title index is
+// derived from the basics store rather than from the network, a v2 install
+// gains it without re-downloading anything (see refreshStaleDatasets).
+const DB_VERSION = 3;
 const STORE_RATINGS = "ratings";   // tconst -> { r, v }
-const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, pinned? }
+const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, via?, pinned? }
 const STORE_BASICS = "basics";     // tconst -> compact metadata, see importBasics()
 const STORE_EPISODES = "episodes"; // parent tconst -> { s: [season aggregate] }
+const STORE_TITLE_INDEX = "titleIndex"; // bucket number -> Map(name -> packed id), see buildTitleIndex()
 const STORE_META = "meta";         // bookkeeping, one record per dataset
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -67,6 +78,7 @@ function openDb() {
       if (!db.objectStoreNames.contains(STORE_TITLES)) db.createObjectStore(STORE_TITLES);
       if (!db.objectStoreNames.contains(STORE_BASICS)) db.createObjectStore(STORE_BASICS);
       if (!db.objectStoreNames.contains(STORE_EPISODES)) db.createObjectStore(STORE_EPISODES);
+      if (!db.objectStoreNames.contains(STORE_TITLE_INDEX)) db.createObjectStore(STORE_TITLE_INDEX);
       if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META);
     };
     request.onsuccess = () => resolve(request.result);
@@ -313,19 +325,33 @@ async function importRatings() {
 }
 
 // --- importing title.basics ------------------------------------------------
-// 216 MB gzipped and 11.5M rows, of which we want 832k. Two filters do the
-// cutting, both applied while streaming so the discarded 92% is never stored:
+// 216 MB gzipped and 11.5M rows, of which we want about 740k. Four filters do
+// the cutting, all applied while streaming so the discarded 94% is never
+// stored:
 //
-//   1. no rating, no point. An unrated title can never produce a badge, and
-//      the ratings index answers that in memory.
-//   2. no episodes. 880k of the 1.7M rated titles are individual episodes and
+//   1. no episodes. 880k of the 1.7M rated titles are individual episodes and
 //      none of them needs a year, a runtime or a genre list — an episode's
 //      score comes from the ratings store, joined through the episodes store.
+//   2. no video games. They are the one titleType that a streaming catalogue
+//      provably cannot contain, and kindOf() already refuses to match them to
+//      a hint. Keeping them would only give the title index below a way to
+//      answer "The Last of Us" with a PlayStation game.
+//   3. no rating, no point. An unrated title can never produce a badge, and
+//      the ratings index answers that in memory.
+//   4. no adult titles. Neither site this extension runs on carries them, so
+//      the metadata is unreachable, and their names are short and generic
+//      enough that they would crowd real answers out of the title index.
 //
-// Together they are the difference between a 54 MB and a 46 MB index.
+// The order is the cheap-and-selective one, not the readable one: the type
+// test alone rejects three rows in four, so it runs before the id is even
+// sliced out, and the row is only split into fields once it has survived
+// everything a prefix can decide. 11.5M nine-way splits was the single most
+// expensive thing this worker did.
 //
 // Fields are stored under one-letter keys because IndexedDB writes the key
-// names into every one of the 832k records.
+// names into every one of the 740k records.
+const BASICS_SKIP_TYPES = new Set(["tvEpisode", "videoGame"]);
+
 async function importBasics() {
   const ratingsMeta = await idbGet(STORE_META, "ratings");
   // The filter is the whole design here; without the ratings index this would
@@ -339,6 +365,9 @@ async function importBasics() {
   if (response.status === 304) {
     await idbSet(STORE_META, "basics", { ...previous, builtAt: Date.now() });
     await setProgress("basics", { phase: "done", rows: previous.rows ?? previous.count, kept: previous.count });
+    // Nothing changed, so the index is normally already correct; this is here
+    // for the install that upgraded from v2 and has a basics store but no index.
+    ensureTitleIndex().catch(() => {});
     return previous.count;
   }
 
@@ -364,12 +393,22 @@ async function importBasics() {
       response,
       (line) => {
         rows++;
+        const tab1 = line.indexOf("\t");
+        if (tab1 < 0) return;
+        const tab2 = line.indexOf("\t", tab1 + 1);
+        if (tab2 < 0) return;
+
+        if (BASICS_SKIP_TYPES.has(line.slice(tab1 + 1, tab2))) return;
+
+        const n = idNumber(line.slice(0, tab1));
+        if (n === null || !rated.has(n)) return;
+
         const f = line.split("\t");
         if (f.length < 9) return;
-        if (f[1] === "tvEpisode") return;
-
-        const n = idNumber(f[0]);
-        if (n === null || !rated.has(n)) return;
+        // isAdult. Checked here rather than by prefix because it is the fifth
+        // column and a fifth indexOf on every row would cost more than the
+        // split it saves on the few percent that reach this line.
+        if (f[4] === "1") return;
 
         const record = { t: f[1], p: f[2] };
         // originalTitle repeats primaryTitle on 93% of rows; storing it only
@@ -392,7 +431,200 @@ async function importBasics() {
 
   await idbSet(STORE_META, "basics", { count: kept, rows, builtAt: Date.now(), lastModified });
   await setProgress("basics", { phase: "done", rows, kept });
+  // Queued rather than awaited: basics is committed and usable at this point,
+  // and an index that fails to build must not mark the import that fed it
+  // failed. It reads the store we just wrote, so it costs no network.
+  ensureTitleIndex().catch(() => {});
   return kept;
+}
+
+// --- the local title index -------------------------------------------------
+// Every unseen title used to cost a call to the suggestion endpoint. But the
+// basics store already holds primaryTitle for all 740k rated non-episode
+// titles, plus originalTitle wherever it differs, and a Netflix label is very
+// often exactly one of those two strings under normaliseKey(). Turning those
+// two columns into a name -> id map answers a large share of first-time
+// lookups with no network at all.
+//
+// Shape is where the whole cost of this lives. One IndexedDB record per name
+// would be ~570k records, and IndexedDB's per-record overhead — key, value
+// header, index entry — is tens of bytes each, several times the payload for
+// an entry whose payload is one number. So names are hashed into a fixed
+// 4096 buckets and each bucket is stored as a single Map. That is 4096 records
+// instead of 570k, the per-record overhead disappears into rounding, and a
+// lookup still costs exactly one get.
+//
+// Serialised (structured clone, same encoder IndexedDB stores through), the
+// whole index measures 13 MB: 3.2 KB per bucket on average and 4.5 KB at the
+// worst, against 46 MB for the basics store it is projected from.
+//
+// The value is a number, not a tconst string: the digits identify the title
+// (see idNumber) and the kind is multiplexed into the low two bits, so that
+// resolving a hinted lookup against a collision needs no reads at all beyond
+// the bucket. Names are not unique — 43% of titles share one — so a name maps
+// to either one number or a short array of them.
+const TITLE_INDEX_BUCKETS = 4096;
+
+// How many same-named titles are worth keeping. Beyond a handful the extra
+// candidates are obscure entries that will never out-vote the ones already
+// held, and the tail of the collision distribution is long enough that an
+// uncapped list would cost more than the store it lives in.
+const TITLE_INDEX_MAX_CANDIDATES = 8;
+
+const KIND_CODES = { movie: 1, series: 2 };
+const KIND_BY_CODE = [null, "movie", "series", null];
+
+function packCandidate(n, type) {
+  return n * 4 + (KIND_CODES[kindOf(type)] || 0);
+}
+
+function candidateId(packed) {
+  return (packed - (packed % 4)) / 4;
+}
+
+function candidateKind(packed) {
+  return KIND_BY_CODE[packed % 4];
+}
+
+// FNV-1a. Nothing depends on its quality beyond an even spread across 4096
+// buckets, and it has to be identical between the build and the lookup, so a
+// short arithmetic one written out here beats anything cleverer.
+function bucketFor(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % TITLE_INDEX_BUCKETS;
+}
+
+// A homepage fires hundreds of lookups and they cluster in no particular
+// bucket, so the reads do not repeat much — but a bucket is ~10 KB and holding
+// a few dozen of them is nothing next to the imports this worker already runs.
+const bucketCache = new Map();
+const BUCKET_CACHE_MAX = 64;
+
+async function titleIndexBucket(key) {
+  const id = bucketFor(key);
+  if (bucketCache.has(id)) return bucketCache.get(id);
+  // Safe read: a missing or broken index must cost a suggestion call, never a
+  // failed lookup.
+  const bucket = await idbGetSafe(STORE_TITLE_INDEX, id);
+  const value = bucket instanceof Map ? bucket : null;
+  bucketCache.set(id, value);
+  if (bucketCache.size > BUCKET_CACHE_MAX) bucketCache.delete(bucketCache.keys().next().value);
+  return value;
+}
+
+async function titleIndexMeta() {
+  return (await idbGetSafe(STORE_META, "titleIndex")) || null;
+}
+
+// The index is a projection of the basics store, so what it has to track is
+// which basics it was built from — not its own age. lastModified is the right
+// stamp for that: builtAt moves on every 304 even though nothing changed.
+function basicsStamp(meta) {
+  return meta ? (meta.lastModified || String(meta.builtAt)) : null;
+}
+
+async function ensureTitleIndex() {
+  const basics = await idbGetSafe(STORE_META, "basics");
+  if (!basics) return; // nothing to project yet
+  const meta = await titleIndexMeta();
+  if (meta && meta.source === basicsStamp(basics)) return;
+  startImport("titleIndex").catch(() => {});
+}
+
+// Built from the basics store rather than from the stream that fills it, for
+// two reasons: it can then be built on an install that already imported basics
+// under v2, and the peak memory of the import stays at one large structure
+// rather than two — the rated index is already ~100 MB and is dropped before
+// this starts.
+//
+// Buckets are accumulated in place and written out as they are finished, so
+// the names are only ever held once. All 4096 are written even when empty,
+// because a rebuild has to overwrite what the previous one left behind.
+async function buildTitleIndex() {
+  const basicsMeta = await idbGet(STORE_META, "basics");
+  if (!basicsMeta) throw new Error("the title index needs basics first");
+
+  await setProgress("titleIndex", { phase: "indexing", rows: 0, kept: 0 });
+
+  // A lookup landing mid-rebuild would otherwise pin a half-written bucket in
+  // the cache for the life of the worker; the clear at the end covers the
+  // rebuild itself, this one covers whatever the previous one left.
+  bucketCache.clear();
+
+  const buckets = new Array(TITLE_INDEX_BUCKETS);
+  let rows = 0;
+  let names = 0;
+
+  const add = (name, packed) => {
+    if (!name) return;
+    const id = bucketFor(name);
+    let bucket = buckets[id];
+    if (!bucket) buckets[id] = bucket = new Map();
+    const existing = bucket.get(name);
+    if (existing === undefined) { bucket.set(name, packed); names++; return; }
+    if (existing === packed) return;
+    if (!Array.isArray(existing)) { bucket.set(name, [existing, packed]); return; }
+    if (existing.length < TITLE_INDEX_MAX_CANDIDATES && !existing.includes(packed)) existing.push(packed);
+  };
+
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_BASICS, "readonly");
+    const req = tx.objectStore(STORE_BASICS).openCursor();
+    // No awaits in here, for the same reason buildRatedIndex has none: the
+    // transaction must not go idle and auto-commit part-way through the store.
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return;
+      const n = idNumber(cursor.key);
+      const value = cursor.value;
+      if (n !== null && value) {
+        rows++;
+        const packed = packCandidate(n, value.t);
+        const primary = normaliseKey(value.p || "");
+        add(primary, packed);
+        // originalTitle is only stored when it differs as a string, but it can
+        // still normalise to the same key ("WALL·E" / "WALL-E"), and a second
+        // entry for the same name and id would just cost an array.
+        if (value.o) {
+          const original = normaliseKey(value.o);
+          if (original !== primary) add(original, packed);
+        }
+      }
+      cursor.continue();
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+
+  await setProgress("titleIndex", { phase: "writing", rows, kept: names });
+
+  let batch = [];
+  for (let id = 0; id < TITLE_INDEX_BUCKETS; id++) {
+    batch.push([id, buckets[id] || new Map()]);
+    buckets[id] = null; // written; let it go
+    if (batch.length >= 256) {
+      await idbPutMany(STORE_TITLE_INDEX, batch);
+      batch = [];
+    }
+  }
+  if (batch.length) await idbPutMany(STORE_TITLE_INDEX, batch);
+
+  bucketCache.clear();
+
+  await idbSet(STORE_META, "titleIndex", {
+    count: names,
+    rows,
+    source: basicsStamp(basicsMeta),
+    builtAt: Date.now()
+  });
+  await setProgress("titleIndex", { phase: "done", rows, kept: names });
+  return names;
 }
 
 // --- importing title.episode -----------------------------------------------
@@ -405,6 +637,20 @@ async function importBasics() {
 // Aggregation has to happen in memory because the file is sorted by episode
 // id, not by parent, so a series' episodes arrive scattered across the whole
 // stream. The accumulator is keyed by number for the memory reasons above.
+//
+// Episodes of an unrated parent are skipped outright. That is not a guess: the
+// only way anyone asks for a season strip is the "seasons" message, and the
+// only imdbID a caller can have came from a lookup — which returns imdbID on
+// the rated branch alone. A season strip for an unrated series is unreachable
+// by construction, so accumulating one is pure cost, and it is a large one:
+// unrated parents are roughly a third of the parent map.
+//
+// The cost is a lag, not a gap. A series that gains its first rating today
+// keeps no strip until the episode file is next imported, which is monthly
+// rather than daily. A series with rated episodes and no rating of its own is
+// rare enough, and its strip needs two seasons a point apart before it draws
+// anything at all, that a month of waiting is the right trade for a third of
+// the memory.
 async function importEpisodes() {
   const ratingsMeta = await idbGet(STORE_META, "ratings");
   if (!ratingsMeta) throw new Error("episode needs the ratings index first");
@@ -433,17 +679,27 @@ async function importEpisodes() {
   try {
     await forEachLine(
       response,
+      // Read by prefix rather than split for the reason importBasics does it:
+      // three of the four columns are wanted and the two tests that reject
+      // most rows are decided by the first three, so 8.9M four-way splits buy
+      // nothing.
       (line) => {
         rows++;
-        const f = line.split("\t");
-        if (f.length < 4) return;
+        const tab1 = line.indexOf("\t");
+        if (tab1 < 0) return;
+        const tab2 = line.indexOf("\t", tab1 + 1);
+        if (tab2 < 0) return;
+        const tab3 = line.indexOf("\t", tab2 + 1);
+        if (tab3 < 0) return;
 
-        const parent = idNumber(f[1]);
-        if (parent === null) return;
+        const parent = idNumber(line.slice(tab1 + 1, tab2));
+        if (parent === null || !rated.has(parent)) return;
+
         // An episode with no season number can't be placed on a season strip,
         // and a strip is the only thing this store exists to draw.
-        if (f[2] === NULL) return;
-        const season = +f[2];
+        const seasonField = line.slice(tab2 + 1, tab3);
+        if (seasonField === NULL) return;
+        const season = +seasonField;
         if (!Number.isFinite(season)) return;
 
         let seasons = parents.get(parent);
@@ -453,7 +709,7 @@ async function importEpisodes() {
 
         acc.c++;
 
-        const episode = idNumber(f[0]);
+        const episode = idNumber(line.slice(0, tab1));
         const packed = episode === null ? undefined : rated.get(episode);
         if (packed === undefined) return; // counted, but it has no score to average
 
@@ -521,7 +777,16 @@ async function importEpisodes() {
 }
 
 // --- running the imports ---------------------------------------------------
-const IMPORTERS = { ratings: importRatings, basics: importBasics, episode: importEpisodes };
+// titleIndex is in here so it shares the queue and the failure handling, but
+// deliberately not in DATASETS: it has no url and no maxAge, it is derived
+// rather than downloaded, and the "import" message gates on DATASETS so that
+// the set of things a caller can ask to download is unchanged.
+const IMPORTERS = {
+  ratings: importRatings,
+  basics: importBasics,
+  episode: importEpisodes,
+  titleIndex: buildTitleIndex
+};
 
 const running = new Map(); // dataset -> promise
 // Two imports at once would only make both slower, and basics and episode read
@@ -574,6 +839,7 @@ async function fullStatus() {
   ]);
   const stored = await chrome.storage.local.get("datasetProgress");
   const progress = stored.datasetProgress || {};
+  const index = await titleIndexMeta();
 
   const describe = (name, meta) => ({
     ...meta,
@@ -589,6 +855,16 @@ async function fullStatus() {
       ratings: describe("ratings", ratings),
       basics: describe("basics", basics),
       episode: describe("episode", episode)
+    },
+    // Additive, and outside `datasets` because it is not one: it has no
+    // download, no freshness window and nothing to trigger by hand.
+    titleIndex: {
+      ready: !!index,
+      names: index?.count ?? 0,
+      titles: index?.rows ?? 0,
+      builtAt: index?.builtAt ?? null,
+      building: running.has("titleIndex"),
+      progress: progress.titleIndex || null
     },
     importing: [...running.keys()]
   };
@@ -608,6 +884,10 @@ async function refreshStaleDatasets() {
     const meta = await metaFor(name);
     if (!meta.ready || meta.stale) startImport(name).catch(() => {});
   }
+  // Not staleness-driven like the others: the index is stale exactly when it
+  // no longer matches the basics it was projected from. This is also the path
+  // that gives a v2 install its index, off its first lookup and for no bytes.
+  await ensureTitleIndex();
 }
 
 // --- resolving a Netflix label to an IMDb id ------------------------------
@@ -660,6 +940,65 @@ async function conflictsWithHint(record, hint) {
   return !!kind && kind !== hint.kind;
 }
 
+// The free half of resolution: the name index built from basics (see
+// buildTitleIndex). A hit here is a title whose primaryTitle or originalTitle
+// normalises to exactly what the page said, which is a stronger match than the
+// endpoint's own ranking gives — so it is worth trying first, not as a
+// fallback.
+//
+// The preference order is deliberately the same one the suggestion path uses
+// below, so a title resolved locally and the same title resolved over the
+// network land on the same id: the caller's hint first, then a candidate that
+// is actually rated, then votes. Exactness needs no step here — every
+// candidate matched the name exactly or it would not be under this key.
+//
+// requireHintKind is for the one caller that already has an answer and is only
+// here because a hint contradicted it: settling for a candidate of the wrong
+// kind would rewrite the record with the same disagreement.
+async function resolveLocally(key, hint, requireHintKind) {
+  const bucket = await titleIndexBucket(key);
+  const entry = bucket ? bucket.get(key) : undefined;
+  if (entry === undefined) return null;
+
+  let pool = Array.isArray(entry) ? entry : [entry];
+
+  if (hint?.kind) {
+    const sameKind = pool.filter((packed) => candidateKind(packed) === hint.kind);
+    if (sameKind.length) pool = sameKind;
+    else if (requireHintKind) return null;
+  } else if (requireHintKind) {
+    return null;
+  }
+
+  // Every row in basics was filtered against the ratings index on the way in,
+  // so a candidate without a rating means the two stores have drifted apart -
+  // rare, and handled by leaving it at the back rather than by trusting it.
+  let pick = pool[0];
+  if (pool.length > 1) {
+    let most = -1;
+    for (const packed of pool) {
+      const rating = await idbGetSafe(STORE_RATINGS, idString(candidateId(packed)));
+      const votes = Number(rating?.v);
+      if (Number.isFinite(votes) && votes > most) { most = votes; pick = packed; }
+    }
+  }
+
+  const tconst = idString(candidateId(pick));
+  const basics = await idbGetSafe(STORE_BASICS, tconst);
+  // No metadata row means the index is out of step with the store it was
+  // projected from, and a record with no label is worse than a call.
+  if (!basics) return null;
+
+  return {
+    tconst,
+    label: basics.p ?? null,
+    year: basics.s ?? null,
+    exact: true,
+    qid: basics.t ?? null,
+    via: "local"
+  };
+}
+
 // Choosing among suggestions is where accuracy is won or lost.
 //
 // IMDb ranks upcoming releases highly, so a search for "Youth" returns the
@@ -681,7 +1020,21 @@ async function resolveTitle(title, hint) {
   // always wins here without needing a separate check - the auto-resolve path
   // below never runs for a title someone has already fixed.
   const cached = await idbGet(STORE_TITLES, key);
-  if (cached && !(await conflictsWithHint(cached, hint))) return cached;
+  const conflicted = cached ? await conflictsWithHint(cached, hint) : false;
+  if (cached?.tconst && !conflicted) return cached;
+
+  // Reached with no record, with one a hint contradicts, or with a cached miss
+  // - and a miss cached before the index existed is worth re-asking locally,
+  // because the answer is now free.
+  const local = await resolveLocally(key, hint, conflicted);
+  if (local) {
+    await idbSet(STORE_TITLES, key, local);
+    return local;
+  }
+
+  // A miss the endpoint already refused to answer stays refused: the local
+  // index having nothing to add is no reason to spend the call again.
+  if (cached && !conflicted) return cached;
 
   let hits = [];
   try {
@@ -697,7 +1050,7 @@ async function resolveTitle(title, hint) {
     // Only reachable with a cached record when a hint sent us back for a second
     // opinion; an empty answer is no reason to throw away the first one.
     if (cached) return cached;
-    const miss = { tconst: null, label: null, year: null };
+    const miss = { tconst: null, label: null, year: null, via: "suggest" };
     await idbSet(STORE_TITLES, key, miss);
     return miss;
   }
@@ -722,7 +1075,11 @@ async function resolveTitle(title, hint) {
     exact: exactMatches.length > 0,
     // Kept so a later hinted lookup can tell whether this record contradicts
     // the hint without spending a call to find out.
-    qid: pick.qid || null
+    qid: pick.qid || null,
+    // What this cost. Counting these two across the titles store is how the
+    // settings page can say what share of lookups never touched the network;
+    // a pinned record carries neither, because a person is not a resolver.
+    via: "suggest"
   };
   await idbSet(STORE_TITLES, key, resolved);
   return resolved;
