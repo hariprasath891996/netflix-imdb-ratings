@@ -212,3 +212,48 @@ document.getElementById("resetTiers").addEventListener("click", async () => {
   await chrome.storage.local.set({ tierHigh, tierMid });
   say("Back to defaults.");
 });
+
+// --- the dim filter -------------------------------------------------------
+// Badges inform; this decides. Off by default, because an extension that
+// starts by hiding half of someone's homepage has overstepped.
+
+const filterEnabled = document.getElementById("filterEnabled");
+const filterMin = document.getElementById("filterMin");
+const filterMinWrap = document.getElementById("filterMinWrap");
+const filterMinLabel = document.getElementById("filterMinLabel");
+
+function paintFilter() {
+  filterMinLabel.textContent = parseFloat(filterMin.value).toFixed(1);
+  // The threshold is meaningless while the filter is off, so it reads as
+  // inactive rather than sitting there looking adjustable.
+  filterMinWrap.dataset.off = filterEnabled.checked ? "no" : "yes";
+}
+
+filterEnabled.addEventListener("change", async () => {
+  paintFilter();
+  await chrome.storage.local.set({ filterEnabled: filterEnabled.checked });
+  say(filterEnabled.checked ? "Dimming on." : "Dimming off.");
+});
+
+// Same one-write-per-frame coalescing as the band control: dragging a range
+// input fires continuously, and every write is a live repaint on Netflix.
+let filterSavePending = false;
+filterMin.addEventListener("input", () => {
+  paintFilter();
+  if (filterSavePending) return;
+  filterSavePending = true;
+  requestAnimationFrame(async () => {
+    filterSavePending = false;
+    await chrome.storage.local.set({ filterMin: parseFloat(filterMin.value) });
+  });
+});
+
+async function loadFilter() {
+  const saved = await chrome.storage.local.get(["filterEnabled", "filterMin"]);
+  filterEnabled.checked = typeof saved.filterEnabled === "boolean"
+    ? saved.filterEnabled : FILTER_DEFAULTS.filterEnabled;
+  filterMin.value = typeof saved.filterMin === "number"
+    ? saved.filterMin : FILTER_DEFAULTS.filterMin;
+  paintFilter();
+}
+loadFilter();

@@ -88,6 +88,26 @@
 .nrx-badge[data-tier="unknown"] { color: #8c8c8c; }  /* no rating found */
 
 
+/* --- the "dim what I'd skip" filter ---------------------------------------
+   Applied to the card itself, not the badge — the point is to push the whole
+   tile back, not just relabel it. Opacity and saturation only: never
+   pointer-events, display or visibility, so Netflix's own hover preview and
+   click handling on the card underneath are untouched.
+
+   Hovering lifts the dim back to full brightness. That's deliberate — a user
+   who points at a dimmed card has already overridden the filter's guess, and
+   should see it exactly as if the filter were off. */
+.nrx-dimmed {
+  opacity: 0.35;
+  filter: saturate(0.6);
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.nrx-dimmed:hover {
+  opacity: 1;
+  filter: none;
+}
+
 /* --- the rating inside Netflix's hover preview ---------------------------
    Netflix replaces the card with a mini-player on hover, taking the badge with
    it, so the rating is restated in the preview's own metadata row alongside

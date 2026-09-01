@@ -7,3 +7,12 @@ const RAG_DEFAULTS = {
   tierHigh: 7.5,
   tierMid: 6.5
 };
+
+// The dim-filter has its own const rather than folding into RAG_DEFAULTS,
+// because other files destructure that object's exact shape. Off by default,
+// and anchored to tierHigh so a first-time user who enables it gets "hide
+// anything I wouldn't call worth it" rather than an arbitrary number.
+const FILTER_DEFAULTS = {
+  filterEnabled: false,
+  filterMin: RAG_DEFAULTS.tierHigh
+};

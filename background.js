@@ -22,7 +22,7 @@ const SUGGEST_BASE = "https://v2.sg.media-imdb.com/suggestion/x/";
 const DB_NAME = "nrx";
 const DB_VERSION = 1;
 const STORE_RATINGS = "ratings"; // tconst -> { r, v }
-const STORE_TITLES = "titles";   // normalised title -> { tconst, label, year }
+const STORE_TITLES = "titles";   // normalised title -> { tconst, label, year, pinned? }
 const STORE_META = "meta";       // bookkeeping
 
 // IMDb regenerates the dataset daily, so the local copy is refreshed on the
@@ -64,6 +64,16 @@ async function idbSet(store, key, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, "readwrite");
     tx.objectStore(store).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbDelete(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -194,6 +204,9 @@ async function suggest(title) {
 // matched title and year travel back and are shown in the badge tooltip.
 async function resolveTitle(title) {
   const key = normaliseKey(title);
+  // A pinned record is a cache hit like any other, so a manual correction
+  // always wins here without needing a separate check - the auto-resolve path
+  // below never runs for a title someone has already fixed.
   const cached = await idbGet(STORE_TITLES, key);
   if (cached) return cached;
 
@@ -229,6 +242,69 @@ async function resolveTitle(title) {
   };
   await idbSet(STORE_TITLES, key, resolved);
   return resolved;
+}
+
+// --- manual correction -----------------------------------------------------
+// resolveTitle() picks the best guess it can from a bare name; these two let a
+// person override that guess for one title without touching the other 1.7M
+// rows or the auto-resolved cache of every other title.
+
+// Same candidate list resolveTitle() would have picked from, but returned
+// wholesale (with local rating/votes attached) so a person can see which one
+// actually has the votes a well-known title should have.
+async function candidatesFor(title) {
+  let hits;
+  try {
+    hits = await suggest(title);
+  } catch (e) {
+    return { error: "network" };
+  }
+
+  const candidates = hits.filter((h) => (h.id || "").startsWith("tt"));
+  if (!candidates.length) return { candidates: [] };
+
+  const withRatings = await Promise.all(
+    candidates.map(async (h) => {
+      const rating = await idbGet(STORE_RATINGS, h.id);
+      return {
+        tconst: h.id,
+        label: h.l || null,
+        year: h.y || null,
+        rating: rating?.r ?? null,
+        votes: rating?.v ?? null
+      };
+    })
+  );
+  return { candidates: withRatings };
+}
+
+async function setMatch(title, tconst, label, year) {
+  const key = normaliseKey(title);
+  let resolvedLabel = label ?? null;
+  let resolvedYear = year ?? null;
+
+  // The UI normally already has label/year from a prior "candidates" call and
+  // passes them along; only spend a network call re-deriving them here so a
+  // pin still succeeds (just without a label) if that call fails.
+  if (resolvedLabel == null) {
+    try {
+      const hits = await suggest(title);
+      const hit = hits.find((h) => h.id === tconst);
+      if (hit) {
+        resolvedLabel = hit.l || null;
+        resolvedYear = hit.y || null;
+      }
+    } catch (e) {
+      // best effort only
+    }
+  }
+
+  // exact: true suppresses the "(closest match)" tooltip caveat in
+  // content.js - a person just confirmed this is the right title, so it is
+  // no longer a guess.
+  const record = { tconst, label: resolvedLabel, year: resolvedYear, exact: true, pinned: true };
+  await idbSet(STORE_TITLES, key, record);
+  return record;
 }
 
 // --- the public lookup ----------------------------------------------------
@@ -296,11 +372,44 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "clearTitleCache") {
+    // A pin is a person's deliberate correction, not a guess, so a blanket
+    // "clear the cache" must not undo it - only the auto-resolved entries are
+    // guesses worth re-rolling.
     openDb().then((db) => {
       const tx = db.transaction(STORE_TITLES, "readwrite");
-      tx.objectStore(STORE_TITLES).clear();
+      const os = tx.objectStore(STORE_TITLES);
+      const cursorReq = os.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        if (!cursor.value?.pinned) cursor.delete();
+        cursor.continue();
+      };
       tx.oncomplete = () => sendResponse({ cleared: true });
+      tx.onerror = () => sendResponse({ cleared: false, error: String(tx.error) });
     });
+    return true;
+  }
+
+  if (message?.type === "candidates" && message.title) {
+    candidatesFor(message.title).then(sendResponse);
+    return true;
+  }
+
+  if (message?.type === "setMatch" && message.title && message.tconst) {
+    setMatch(message.title, message.tconst, message.label, message.year).then(
+      (match) => sendResponse({ ok: true, match }),
+      (err) => sendResponse({ ok: false, error: String(err) })
+    );
+    return true;
+  }
+
+  if (message?.type === "unsetMatch" && message.title) {
+    const key = normaliseKey(message.title);
+    idbDelete(STORE_TITLES, key).then(
+      () => sendResponse({ ok: true }),
+      (err) => sendResponse({ ok: false, error: String(err) })
+    );
     return true;
   }
 });

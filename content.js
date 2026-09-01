@@ -35,6 +35,10 @@ const LOW_VOTE_THRESHOLD = 1000;
 // mutable because a settings change re-colours badges in place — no refetch.
 let thresholds = { ...RAG_DEFAULTS };
 
+// The dim-filter setting, same deal: mutable, re-applied in place rather than
+// re-fetched, and defaulting from defaults.js.
+let filter = { ...FILTER_DEFAULTS };
+
 let announcedImport = false;
 let retryTimer = null;
 
@@ -96,13 +100,32 @@ function tierFor(rating) {
   return "low";
 }
 
+// A missing rating (dataset.rating unset) must never dim — that's "no data",
+// not "low score", and treating them the same would bury new and regional
+// titles the extension simply hasn't matched yet.
+function applyDim(card, rating) {
+  const value = parseFloat(rating);
+  const dim = filter.filterEnabled && rating && !Number.isNaN(value) && value < filter.filterMin;
+  card.classList.toggle("nrx-dimmed", !!dim);
+}
+
 // Changing a threshold changes only which colour a score maps to, never the
 // score itself. So we keep the rating on the element and recolour in place
-// rather than re-fetching anything.
+// rather than re-fetching anything. The dim filter piggybacks on the same
+// pass, for the same reason.
 function recolourAll() {
   for (const element of document.querySelectorAll(".nrx-badge, .nrx-chip")) {
     const rating = element.dataset.rating;
     if (rating) element.dataset.tier = tierFor(rating);
+  }
+
+  // Only .nrx-badge lives on a card; .nrx-chip lives inside the hover-preview
+  // modal, which isn't a card and is never dimmed. closest() rather than
+  // parentElement because the badge's exact depth is hostFor()'s business, not
+  // this function's.
+  for (const badge of document.querySelectorAll(".nrx-badge")) {
+    const card = badge.closest(CARD_SELECTORS);
+    if (card) applyDim(card, badge.dataset.rating);
   }
 }
 
@@ -192,6 +215,10 @@ function renderBadge(host, result) {
 
   host.classList.add("nrx-host");
   host.appendChild(badge);
+
+  // A card that renders while the filter is already on should not wait for
+  // the next settings change to be dimmed.
+  applyDim(host, badge.dataset.rating);
 }
 
 // --- the hover preview ----------------------------------------------------
@@ -339,6 +366,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
       touched = true;
     }
   }
+  for (const key of ["filterEnabled", "filterMin"]) {
+    if (changes[key]) {
+      filter[key] = changes[key].newValue ?? FILTER_DEFAULTS[key];
+      touched = true;
+    }
+  }
   if (touched) recolourAll();
 });
 
@@ -346,10 +379,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // the wrong colours and then corrected a moment later.
 (async function start() {
   try {
-    const saved = await chrome.storage.local.get(["tierHigh", "tierMid"]);
+    const saved = await chrome.storage.local.get(["tierHigh", "tierMid", "filterEnabled", "filterMin"]);
     thresholds = {
       tierHigh: typeof saved.tierHigh === "number" ? saved.tierHigh : RAG_DEFAULTS.tierHigh,
       tierMid: typeof saved.tierMid === "number" ? saved.tierMid : RAG_DEFAULTS.tierMid
+    };
+    filter = {
+      filterEnabled: typeof saved.filterEnabled === "boolean" ? saved.filterEnabled : FILTER_DEFAULTS.filterEnabled,
+      filterMin: typeof saved.filterMin === "number" ? saved.filterMin : FILTER_DEFAULTS.filterMin
     };
   } catch (e) {
     // Storage unavailable is not fatal — the defaults are perfectly usable.
