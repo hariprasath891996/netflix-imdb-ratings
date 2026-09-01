@@ -40,6 +40,21 @@ const PLATFORMS = {
       '[data-uia="title-card-container"]'
     ],
 
+    // Which of those cards live in a horizontal carousel. The best-in-row
+    // marker needs the distinction because "the row" is only a meaningful unit
+    // on the homepage: My List and the genre pages are wrapping grids, where
+    // the same mark would just crown whichever tile happened to land in the
+    // first line. The three anchors above are the row components and the
+    // fourth is the grid one, which is why this is a subset of `cards` rather
+    // than a separate measurement — a grid tile is badged on the container
+    // itself, a row card on the anchor inside it, so a badge that can reach one
+    // of these with closest() is on a row.
+    rowCards: [
+      '[data-uia="standard-card"]',
+      '[data-uia="ranked-card"]',
+      '[data-uia="progress-card"]'
+    ],
+
     // The card element is itself the box that frames the artwork here, so
     // there is no inner host to look for.
     badgeHost: null,
@@ -71,6 +86,12 @@ const PLATFORMS = {
     // selector nobody has watched match is a liability rather than extra
     // coverage.
     cards: ['[data-testid="card"]'],
+
+    // Prime uses one card component everywhere, so nothing here separates a
+    // carousel card from a grid card — and the best-in-row marker is wrong the
+    // moment it can't tell them apart. Null turns the feature off rather than
+    // guessing, which is the same call the modal chip already makes below.
+    rowCards: null,
 
     // The card is an <article> around the packshot, and the packshot is the
     // box that actually frames the artwork — so the badge hangs off that
@@ -111,6 +132,7 @@ if (!platform) {
 
 const CARD_SELECTORS = platform.cards.join(",");
 const MODAL_META = platform.modalMeta;
+const ROW_CARDS = platform.rowCards ? platform.rowCards.join(",") : null;
 
 // Below this many votes a rating is thin evidence. Measured against 430 real
 // titles: only ~3% fall under 1,000, so this flags the genuinely shaky ones
@@ -118,6 +140,49 @@ const MODAL_META = platform.modalMeta;
 // a wrong-match signal — a famous series resolving to 90 votes means the match,
 // not the rating, is wrong.
 const LOW_VOTE_THRESHOLD = 1000;
+
+// The top of the "under-seen" band: a strong score on fewer votes than this,
+// but more than LOW_VOTE_THRESHOLD, is a find rather than a warning.
+//
+// Both edges come from the same measurement as the threshold above. The floor
+// has to be LOW_VOTE_THRESHOLD itself, because under it a high score is more
+// often a wrong match than a discovery — a famous title resolving to 90 votes
+// is the dash's whole purpose, and promoting that to a recommendation would
+// recommend the mistake. The ceiling is the other number that measurement gave
+// us: ~28% of 430 real titles sit under 10,000 votes, and requiring green on
+// top of that leaves a handful of cards on a homepage rather than one per row.
+//
+// The honest limit: this cannot tell an under-seen gem from a plausible
+// mismatch that happens to clear 1,000 votes, because on the data we have they
+// are the same shape. Everything about the marker is therefore sized for being
+// wrong sometimes — it is a halo on the badge, not a rosette, and it never
+// promotes anything the dash would have flagged.
+const GEM_VOTE_MAX = 10000;
+
+// --- the best-in-row marker ----------------------------------------------
+// How many comparable titles a row needs before "best" says anything. With two
+// it is a coin-flip that flips again as the row fills; three is the smallest
+// number where the mark reads as a pick rather than as an accident of which
+// cards resolved first.
+const ROW_BEST_MIN_RATED = 3;
+
+// How far the walk up from a card may go looking for the element that holds
+// the whole row. Netflix's row card sits four levels under its slider's
+// content box; this is a bail-out for a DOM that no longer looks like that,
+// not a measurement of one that does.
+const ROW_ANCESTOR_LIMIT = 8;
+
+// A carousel puts every card on one line, a grid does not. sort.js measures the
+// same distinction from the other side (60px, comfortably more than a row's own
+// sub-pixel jitter and less than a tile's ~147px height); this is the same test
+// with room to spare, and it is what stops the marker appearing on a grid if
+// Netflix ever builds one from the row components.
+const ROW_LINE_TOLERANCE = 40;
+
+// Ratings land in bursts as a screenful resolves, so the winner is recomputed
+// once per burst rather than once per badge — otherwise the mark would visibly
+// walk down the row as each card came back.
+const ROW_BEST_DELAY = 300;
 
 // How far a series' best and worst seasons must sit apart before the season
 // strip is worth drawing at all. Measured against the 230 series on a real
@@ -143,9 +208,27 @@ const SEASON_CAP = 12;
 // mutable because a settings change re-colours badges in place — no refetch.
 let thresholds = { ...RAG_DEFAULTS };
 
+// The metadata filters, added after defaults.js was written and defaulted here
+// so that an options page which has never stored them, or a build of
+// defaults.js that predates them, still lands on "off". Each says so in its own
+// value — null minutes, "all" kinds, no genres — rather than sharing
+// filterEnabled, so a user who picks a genre gets the genre filter without also
+// having to arm the rating one.
+const META_FILTER_DEFAULTS = {
+  filterRuntimeMax: null,
+  filterKinds: "all",
+  filterGenres: []
+};
+
+const FILTER_KEYS = ["filterEnabled", "filterMin", "filterRuntimeMax", "filterKinds", "filterGenres"];
+
 // The dim-filter setting, same deal: mutable, re-applied in place rather than
-// re-fetched, and defaulting from defaults.js.
-let filter = { ...FILTER_DEFAULTS };
+// re-fetched. Seeded through the same normaliser the two storage paths use —
+// with nothing to normalise, so every key lands on its own "off" — because a
+// scan can beat start() to the page, and a card badged in that window must be
+// judged by exactly the rules a card badged a moment later will be.
+let filter = {};
+for (const key of FILTER_KEYS) filter[key] = normaliseFilter(key, undefined);
 
 let announcedImport = false;
 let retryTimer = null;
@@ -224,13 +307,126 @@ function tierFor(rating) {
   return "low";
 }
 
-// A missing rating (dataset.rating unset) must never dim — that's "no data",
-// not "low score", and treating them the same would bury new and regional
-// titles the extension simply hasn't matched yet.
-function applyDim(card, rating) {
-  const value = parseFloat(rating);
-  const dim = filter.filterEnabled && rating && !Number.isNaN(value) && value < filter.filterMin;
-  card.classList.toggle("nrx-dimmed", !!dim);
+// --- the dim filters ------------------------------------------------------
+// One rule per question the user can ask, all reading the badge rather than the
+// reply, because the reply is long gone by the time a settings change asks
+// again. Every one of them answers "pass" when the field it judges is missing:
+// absence of information is not failure, and dimming on it would bury exactly
+// the new and regional titles the rating rule has always been careful about.
+//
+// A missing rating is that rule's own version of the same thing — "no data",
+// never "low score".
+function failsRating(badge) {
+  if (!filter.filterEnabled) return false;
+  const value = parseFloat(badge.dataset.rating);
+  return Number.isFinite(value) && value < filter.filterMin;
+}
+
+// Films only, and deliberately so. IMDb's runtimeMinutes for a series is the
+// length of one episode, so judging a series on it would dim a five-season show
+// for having 45-minute episodes — the opposite of what "nothing over two hours"
+// means. A series is exempt rather than failed, and so is anything whose kind
+// the worker didn't say, since exempting the unknown is the only reading that
+// can't be wrong in that direction.
+function failsRuntime(badge) {
+  const max = filter.filterRuntimeMax;
+  if (!(typeof max === "number" && Number.isFinite(max) && max > 0)) return false;
+  if (badge.dataset.kind !== "movie") return false;
+  const minutes = Number(badge.dataset.runtime);
+  if (!Number.isFinite(minutes) || minutes <= 0) return false;
+  return minutes > max;
+}
+
+function failsKind(badge) {
+  const want = filter.filterKinds;
+  if (want !== "movies" && want !== "series") return false; // "all", or a value we don't know
+  if (!badge.dataset.kind) return false;
+  return want === "movies" ? badge.dataset.kind !== "movie" : badge.dataset.kind !== "series";
+}
+
+// Sharing one genre is enough. The list reads as "things I'm in the mood for",
+// and a title has to be several genres at once for IMDb to file it that way, so
+// requiring all of them would dim nearly everything.
+function failsGenres(badge) {
+  const wanted = filter.filterGenres;
+  if (!Array.isArray(wanted) || wanted.length === 0) return false;
+  if (!badge.dataset.genres) return false;
+  const have = badge.dataset.genres.split("|");
+  return !wanted.some((genre) => have.includes(genre));
+}
+
+// A card fails on any one of them, which is what makes the filters read as
+// "and": each is a condition the title has to survive.
+function applyDim(card, badge) {
+  const dim = failsRating(badge) || failsRuntime(badge) || failsKind(badge) || failsGenres(badge);
+  card.classList.toggle("nrx-dimmed", dim);
+}
+
+// The filters run long after the reply arrives — every settings change
+// re-evaluates them in place — so what the worker said has to outlive the
+// message. Only fields that actually parsed are written, because an absent
+// dataset key is precisely what the rules above read as "no data", and a key
+// written on a guess is the one way a card could be dimmed for something
+// nobody knows about it.
+function stampMetadata(badge, result) {
+  if (typeof result.titleType === "string" && result.titleType.trim()) {
+    badge.dataset.kind = isSeriesType(result.titleType) ? "series" : "movie";
+  }
+
+  const minutes = Number(result.runtimeMinutes);
+  if (Number.isFinite(minutes) && minutes > 0) badge.dataset.runtime = String(minutes);
+
+  if (Array.isArray(result.genres)) {
+    // Lower-cased on both sides of the comparison, so a settings page that
+    // stores "Sci-Fi" and a dataset that says "sci-fi" still mean the same
+    // genre. The pipe is safe as a separator: no IMDb genre contains one.
+    const genres = result.genres
+      .filter((genre) => typeof genre === "string" && genre.trim())
+      .map((genre) => genre.trim().toLowerCase());
+    if (genres.length) badge.dataset.genres = genres.join("|");
+  }
+}
+
+// --- how sure the badge is ------------------------------------------------
+// One attribute with three states, never two attributes, because "thin
+// evidence" and "under-seen find" are the same fact read at different vote
+// counts and a card must never wear both. Making them values of one key is what
+// makes that impossible rather than merely avoided.
+//
+// Keyed off the user's own green threshold, so a gem is by definition a title
+// this user would have called worth watching — which also means the marker has
+// to be re-derived whenever that threshold moves, exactly like the tier colours.
+function applyConfidence(badge) {
+  const votes = Number(badge.dataset.votes);
+  const rating = parseFloat(badge.dataset.rating);
+
+  if (!Number.isFinite(votes) || votes <= 0 || !Number.isFinite(rating)) {
+    delete badge.dataset.confidence;
+  } else if (votes < LOW_VOTE_THRESHOLD) {
+    badge.dataset.confidence = "low";
+  } else if (votes < GEM_VOTE_MAX && rating >= thresholds.tierHigh) {
+    badge.dataset.confidence = "gem";
+  } else {
+    delete badge.dataset.confidence;
+  }
+
+  refreshTip(badge);
+}
+
+// The markers are the only thing on a card with no number behind them, so each
+// one says in words what it means. They are appended to a stored base rather
+// than edited into the tooltip, because both can come and go — a threshold drag
+// takes the halo away, a later card in the row takes the underline — and a
+// tooltip that accumulated its own history would end up describing a badge that
+// no longer looks like that.
+function refreshTip(badge) {
+  const base = badge.dataset.tipBase;
+  if (!base) return; // an unresolved badge has one fixed line and no markers
+
+  const lines = [base];
+  if (badge.dataset.confidence === "gem") lines.push("Under-seen: strong score, few votes");
+  if (badge.dataset.best) lines.push("Best rated in this row");
+  badge.dataset.tip = lines.join("\n");
 }
 
 // Changing a threshold changes only which colour a score maps to, never the
@@ -252,9 +448,15 @@ function recolourAll() {
   // rather than parentElement because the badge's exact depth is hostFor()'s
   // business, not this function's.
   for (const badge of document.querySelectorAll(".nrx-badge")) {
+    applyConfidence(badge); // the gem band moves with the green threshold
     const card = badge.closest(CARD_SELECTORS);
-    if (card) applyDim(card, badge.dataset.rating);
+    if (card) applyDim(card, badge);
   }
+
+  // Last, because both of its inputs were just rewritten: the floor is the
+  // green threshold, and a card the filter has only now dimmed must not still
+  // be a row's recommendation.
+  refreshAllRows();
 }
 
 // --- tooltip --------------------------------------------------------------
@@ -379,6 +581,143 @@ addEventListener("keydown", (event) => {
   hideTip();
 }, { capture: true });
 
+// --- the best card in a row -----------------------------------------------
+// A Netflix row is thirty seconds of scanning for something that might be good.
+// The badges already answer that per card, but the answer only exists once you
+// have read all of them — so the row's own best is marked, and a row you would
+// have skimmed past says which card was worth stopping on.
+//
+// Rows only. On My List and the genre pages the tiles wrap, "the row" is a
+// consequence of the window width, and a mark on the first line would be
+// meaningless; ROW_CARDS is null on platforms where the two can't be told
+// apart, and the one-line test below is the second line of defence.
+
+// The row container is derived rather than named, for the same reason sort.js
+// derives its grid: Netflix's class names are CSS-in-JS hashes that change on
+// every deploy. The first ancestor holding more than one row card is the
+// element that holds the row — anything below it wraps a single card, and
+// anything above it holds every row on the page.
+function rowOf(card) {
+  let node = card.parentElement;
+  for (let depth = 0; node && depth < ROW_ANCESTOR_LIMIT; depth++, node = node.parentElement) {
+    if (node.querySelectorAll(ROW_CARDS).length > 1) return node;
+  }
+  return null;
+}
+
+// Rows resolve card by card, so the winner is provisional until the row is
+// full. Recomputing the whole row from scratch — clear every mark, then set
+// one — is what keeps it to one card as the winner moves: there is no state to
+// go stale, only the current best of whatever has resolved so far.
+function markBestInRow(row) {
+  const badges = row.querySelectorAll(".nrx-badge[data-rating]");
+
+  let top = Infinity;
+  let bottom = -Infinity;
+  let candidates = 0;
+  let best = null;
+  let bestValue = -Infinity;
+
+  for (const badge of badges) {
+    const value = parseFloat(badge.dataset.rating);
+    if (!Number.isFinite(value)) continue;
+
+    // Measured off the badges we are already walking rather than by a second
+    // pass over the cards. A zero-width box is a card the carousel has parked
+    // off its own edge, which has no position worth reading.
+    const box = badge.getBoundingClientRect();
+    if (!box.width) continue;
+    top = Math.min(top, box.top);
+    bottom = Math.max(bottom, box.top);
+
+    // A dashed badge is as likely to be a wrong match as a discovery, and
+    // crowning a row with one would put the extension's loudest mark on its
+    // least reliable number.
+    if (badge.dataset.confidence === "low") continue;
+
+    // Nor can a card the user's own filter has just pushed back be the thing
+    // the row recommends — that is the marker arguing with the filter.
+    const card = badge.closest(CARD_SELECTORS);
+    if (card && card.classList.contains("nrx-dimmed")) continue;
+
+    candidates++;
+    if (value > bestValue) {
+      bestValue = value;
+      best = badge;
+    }
+  }
+
+  // Nothing was laid out — a row Netflix has collapsed rather than one with no
+  // good card in it. Leaving it untouched keeps its existing mark for when it
+  // comes back, since nothing would queue this row again to restore one.
+  if (!Number.isFinite(top)) return;
+
+  // More than one line means this is not a carousel, and the safe answer is to
+  // leave it entirely alone — including any marks already on it, which belong
+  // to whichever row pass actually understood the layout.
+  if (bottom - top > ROW_LINE_TOLERANCE) return;
+
+  // Two conditions for saying nothing, and both are about noise: too few
+  // titles to compare, or a winner that isn't worth pointing at. The floor is
+  // the user's own green threshold rather than a number of ours, because that
+  // is where they have already said "worth it" — a row topping out at 5.9 gets
+  // no mark, and someone who runs a strict threshold gets marks on fewer rows
+  // rather than the same marks with a different meaning.
+  if (candidates < ROW_BEST_MIN_RATED || bestValue < thresholds.tierHigh) best = null;
+
+  for (const badge of badges) {
+    if (badge === best) {
+      if (badge.dataset.best) continue;
+      badge.dataset.best = "1";
+    } else if (badge.dataset.best) {
+      delete badge.dataset.best;
+    } else {
+      continue;
+    }
+    refreshTip(badge);
+  }
+}
+
+// Ratings arrive in bursts, so rows are collected and settled once the burst is
+// over — the same bargain the page scan already makes with its own debounce.
+const pendingRows = new Set();
+let rowTimer = null;
+
+function noteRowCard(card) {
+  if (!ROW_CARDS || !card.matches(ROW_CARDS)) return;
+  const row = rowOf(card);
+  if (!row) return; // a row with one card resolved so far has nothing to compare
+
+  pendingRows.add(row);
+  clearTimeout(rowTimer);
+  rowTimer = setTimeout(flushRows, ROW_BEST_DELAY);
+}
+
+function flushRows() {
+  rowTimer = null;
+  const rows = [...pendingRows];
+  pendingRows.clear();
+  // Netflix rebuilds rows as you scroll, so a container queued a moment ago may
+  // no longer be on the page; marking one is work nobody will see.
+  for (const row of rows) if (row.isConnected) markBestInRow(row);
+}
+
+// The settings path, where every row is stale at once rather than one row being
+// newly filled. Rare enough — a threshold drag, a filter change — that walking
+// the page beats keeping an index of rows in sync with Netflix's churn.
+function refreshAllRows() {
+  if (!ROW_CARDS) return;
+
+  const rows = new Set();
+  for (const badge of document.querySelectorAll(".nrx-badge[data-rating]")) {
+    const card = badge.closest(ROW_CARDS);
+    if (!card) continue; // a grid tile: no row to be best in
+    const row = rowOf(card);
+    if (row) rows.add(row);
+  }
+  for (const row of rows) markBestInRow(row);
+}
+
 function renderBadge(host, result) {
   if (host.querySelector(".nrx-badge")) return;
 
@@ -395,10 +734,14 @@ function renderBadge(host, result) {
     badge.textContent = result.rating;
 
     // An 8.9 from 74 votes and an 8.7 from 2.3M both badge green, which lets
-    // the badge mislead by omission. A dashed outline marks the thin ones.
-    if (result.votes && result.votes < LOW_VOTE_THRESHOLD) {
-      badge.dataset.confidence = "low";
+    // the badge mislead by omission — and an 8.9 from 3,000 is a third thing
+    // again, worth pointing at rather than warning about. The vote count is
+    // kept on the element so applyConfidence() can be asked again later; which
+    // of the three a card is depends on a threshold the user can move.
+    if (Number.isFinite(result.votes) && result.votes > 0) {
+      badge.dataset.votes = String(result.votes);
     }
+    stampMetadata(badge, result);
 
     // Netflix's label and IMDb's title often differ ("Laapataa Ladies" is
     // filed as "Lost Ladies"), and the match is occasionally wrong. Naming the
@@ -420,7 +763,10 @@ function renderBadge(host, result) {
       tip += `\n${MODIFIER_LABEL}-click to open IMDb`;
     }
 
+    // The markers append their own lines to this; see refreshTip().
+    badge.dataset.tipBase = tip;
     badge.dataset.tip = tip;
+    applyConfidence(badge);
   }
 
   badge.addEventListener("mouseenter", () => showTip(badge));
@@ -436,7 +782,13 @@ function renderBadge(host, result) {
   // is to push the whole tile back, and recolourAll() reaches for the card the
   // same way, so the two passes can never disagree about which element carries
   // the class.
-  applyDim(host.closest(CARD_SELECTORS) || host, badge.dataset.rating);
+  const card = host.closest(CARD_SELECTORS) || host;
+  applyDim(card, badge);
+
+  // After the dim, because a card that has just been filtered out is not
+  // eligible to be its row's pick. Only a card with a score can change the
+  // winner; a grey "—" leaves the row exactly as it was.
+  if (badge.dataset.rating) noteRowCard(card);
 }
 
 // --- the hover preview ----------------------------------------------------
@@ -845,6 +1197,38 @@ const pageObserver = new MutationObserver(() => {
 
 pageObserver.observe(document.body, { childList: true, subtree: true });
 
+// Settings are read in one place, on both paths, because a stored value is
+// whatever the last version of the options page happened to write — and a
+// filterGenres that arrived as a string, or a filterRuntimeMax of 0, would
+// otherwise dim a page nobody asked to have dimmed. Anything unrecognised
+// lands on the setting's own "off" value rather than being applied literally:
+// a filter is a thing the user turned on, so uncertainty means off.
+function normaliseFilter(key, value) {
+  switch (key) {
+    case "filterEnabled":
+      return typeof value === "boolean" ? value : FILTER_DEFAULTS.filterEnabled;
+    case "filterMin":
+      return typeof value === "number" && Number.isFinite(value) ? value : FILTER_DEFAULTS.filterMin;
+    case "filterRuntimeMax":
+      return typeof value === "number" && Number.isFinite(value) && value > 0
+        ? value
+        : META_FILTER_DEFAULTS.filterRuntimeMax;
+    case "filterKinds":
+      return value === "movies" || value === "series" ? value : META_FILTER_DEFAULTS.filterKinds;
+    case "filterGenres":
+      // Lower-cased here so the comparison in failsGenres() is a plain
+      // includes() against what stampMetadata() wrote, rather than a case fold
+      // repeated once per card per pass.
+      return Array.isArray(value)
+        ? value
+            .filter((genre) => typeof genre === "string" && genre.trim())
+            .map((genre) => genre.trim().toLowerCase())
+        : [];
+    default:
+      return value;
+  }
+}
+
 // A settings change should take effect on the open tab immediately — having to
 // reload Netflix to see a threshold tweak would make tuning them miserable.
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -856,9 +1240,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       touched = true;
     }
   }
-  for (const key of ["filterEnabled", "filterMin"]) {
+  for (const key of FILTER_KEYS) {
     if (changes[key]) {
-      filter[key] = changes[key].newValue ?? FILTER_DEFAULTS[key];
+      filter[key] = normaliseFilter(key, changes[key].newValue);
       touched = true;
     }
   }
@@ -869,15 +1253,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // the wrong colours and then corrected a moment later.
 (async function start() {
   try {
-    const saved = await chrome.storage.local.get(["tierHigh", "tierMid", "filterEnabled", "filterMin"]);
+    const saved = await chrome.storage.local.get(["tierHigh", "tierMid", ...FILTER_KEYS]);
     thresholds = {
       tierHigh: typeof saved.tierHigh === "number" ? saved.tierHigh : RAG_DEFAULTS.tierHigh,
       tierMid: typeof saved.tierMid === "number" ? saved.tierMid : RAG_DEFAULTS.tierMid
     };
-    filter = {
-      filterEnabled: typeof saved.filterEnabled === "boolean" ? saved.filterEnabled : FILTER_DEFAULTS.filterEnabled,
-      filterMin: typeof saved.filterMin === "number" ? saved.filterMin : FILTER_DEFAULTS.filterMin
-    };
+    filter = {};
+    for (const key of FILTER_KEYS) filter[key] = normaliseFilter(key, saved[key]);
   } catch (e) {
     // Storage unavailable is not fatal — the defaults are perfectly usable.
   }

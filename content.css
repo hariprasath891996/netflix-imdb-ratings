@@ -113,6 +113,41 @@
   opacity: 0.85;
 }
 
+/* The other end of the same fact: strongly rated, but on few enough votes that
+   nobody has heard of it. Same attribute as the dash, so a badge can never wear
+   both — see applyConfidence() in content.js.
+
+   A halo rather than a shape or a glyph, because this is a nudge and the honest
+   confidence behind it is moderate: an under-seen gem and a plausible wrong
+   match look identical in the data, and a mark that can be wrong should not be
+   a rosette. currentColor keeps it in the badge's own tier colour, which the
+   gem band guarantees is green — the glow can never disagree with the number
+   it surrounds. */
+.nrx-badge[data-confidence="gem"] {
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* The best-rated card in a row. A pseudo-element, so the mark costs the card no
+   extra node: nothing new to intercept a click or sit between Netflix and its
+   own hover preview, and it inherits the badge's visibility so Shift+B takes it
+   away with everything else.
+
+   An underline, because the badge is already the thing being talked about and
+   this is emphasis on it rather than a second signal beside it. Drawn just
+   outside the plate so it never crowds the number, and in the badge's own
+   colour so the row's pick still reads as its score first. */
+.nrx-badge[data-best]::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  pointer-events: none;
+}
+
 /* Colour is the whole point: you should be able to scan a row without
    reading a single number. */
 .nrx-badge[data-tier="high"]    { color: #46d369; }  /* worth it */
