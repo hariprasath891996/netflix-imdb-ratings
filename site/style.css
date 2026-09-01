@@ -225,10 +225,20 @@ code {
   margin-left: auto;
   font-size: 14.5px;
 }
+/* The hit area is extended with a pseudo-element rather than padding, so the
+   target reaches a comfortable size without the link box growing and pushing
+   the row around. Text height alone is ~25px, which is a small thing to hit
+   accurately with a pointer and far too small for a thumb. */
 .head-nav a {
+  position: relative;
   color: var(--text-mid);
   text-decoration: none;
   transition: color .16s var(--ease);
+}
+.head-nav a::after {
+  content: "";
+  position: absolute;
+  inset: -10px -8px;
 }
 .head-nav a:hover { color: var(--text); }
 
@@ -1103,10 +1113,18 @@ input[type="range"]::-moz-range-thumb {
   gap: 10px 26px;
   font-size: 14.5px;
 }
+/* Same reasoning as the header nav, and it matters more here: the header nav is
+   hidden below 900px, so the footer is the only nav a phone ever sees. */
 .foot-nav a {
+  position: relative;
   color: var(--text-mid);
   text-decoration: none;
   transition: color .16s var(--ease);
+}
+.foot-nav a::after {
+  content: "";
+  position: absolute;
+  inset: -12px -10px;
 }
 .foot-nav a:hover { color: var(--text); text-decoration: underline; }
 
