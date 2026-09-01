@@ -1,18 +1,19 @@
 # Roadmap
 
-Features are split by one test: **does it change whether you pick a better
-film?** That is core. Everything else is polish, however pleasant.
+Most of this list is sorted by one test: **does it change whether you pick a
+better film?** That is core; the rest is polish.
 
-`Needs` names the IMDb dataset file a feature depends on. All three —
-`ratings` (8 MB, daily), `basics` (216 MB, monthly) and `episode` (52 MB,
-monthly) — are now imported.
+Two groups answer a different question and are tiered separately. **Watching**
+makes the viewing better rather than the choosing, and **Capture** is about
+getting text and images off the page. Both are committed, and together they are
+the candidate paid tier — see "Why this matters for pricing" below.
 
 **Standing caveat: nothing since v0.2.0 has been run as a loaded extension.**
-Everything below marked shipped was verified by reading the code and by
-injecting the same logic into the live sites through a browser. That is real
-evidence, but it is not the same as running it. v0.3.0 in particular carries a
-schema upgrade, three imports and a 216 MB install download that have never
-executed on a real machine.
+Everything shipped below was verified by reading code, by injecting the same
+logic into the live sites through a browser, and by harnesses the agents wrote
+(a VM check that the four content scripts do not collide at load, a headless
+run of sort.js against a simulated grid, a stubbed-IndexedDB resolution test).
+That is real evidence. It is not the same as running it.
 
 ## Shipped
 
@@ -23,130 +24,110 @@ executed on a real machine.
 | 1 | IMDb rating on every card, colour-coded | The product |
 | 2 | Ratings from IMDb's published dataset — no server, key or account | 1.7M titles, local |
 | 3 | Daily conditional refresh | A 304 costs zero bytes and skips the import |
-| 4 | `basics` + `episode` imported, on their own monthly cadence | v0.3.0. Untested at full size; the import holds ~100 MB in memory |
-| 5 | Alias resolution — "Laapataa Ladies" → "Lost Ladies" | Recovered 57 of 60 titles OMDb had missed |
-| 6 | Title normalisation — curly quotes, "(U.S.)", "(2011)" | Recovered 5 more |
-| 7 | Adjustable colour bands, dragged on a 0–10 scale | Netflix recolours as you drag |
-| 8 | Dim what I'd skip | Unrated titles never dim |
-| 9 | Correct a wrong match — candidates with vote counts, pin one | Pins survive "clear matches" |
-| 10 | Thin-evidence marker — dashed under 1,000 votes | Threshold measured: only ~3% of a homepage falls under it |
-| 11 | Rating restated inside the hover preview | Netflix only |
-| 12 | **Series-vs-film disambiguation** | v0.3.0. Reads Netflix's own "5 Seasons" / "1h 52m" before our chip is inserted |
-| 13 | **Season strip, gated on spread** | v0.3.0. Renders only when seasons differ by ≥1.0 — 78% of multi-season series say nothing, so silence is the default |
-| 14 | **Is it finished, or still running** | v0.3.0. 76% of homepage series have ended |
-| 15 | Netflix: rows, search, My List, genre grids | Search needed no work |
-| 16 | Prime Video | Only `primevideo.com` verified; `amazon.*` patterns unverified |
-| 17 | Per-platform badge corner | Both corners measured live |
+| 4 | `basics` + `episode` imported, on their own monthly cadence | Untested at full size |
+| 5 | Local title index — most titles resolve with **zero network calls** | 13.4 MB, bucketed; measured through v8.serialize |
+| 6 | Alias resolution — "Laapataa Ladies" → "Lost Ladies" | Local first, suggestion endpoint as fallback |
+| 7 | Title normalisation — curly quotes, "(U.S.)", "(2011)" | — |
+| 8 | Adjustable colour bands, dragged on a 0–10 scale | Netflix recolours as you drag |
+| 9 | Dim what I'd skip, by rating | Unrated titles never dim |
+| 10 | Dim by runtime, kind and genre | Runtime is films-only; nothing dims on missing data |
+| 11 | Correct a wrong match | Pins survive "clear matches" |
+| 12 | Thin-evidence marker — dashed under 1,000 votes | ~3% of a homepage |
+| 13 | Under-seen gem halo | 1,000–10,000 votes and above your green line |
+| 14 | Best-in-row marker | Floored at your green line, recomputed as rows fill |
+| 15 | Rating restated inside the hover preview | Netflix only |
+| 16 | Series-vs-film disambiguation | Reads Netflix's own "5 Seasons" / "1h 52m" |
+| 17 | Season strip, gated on spread ≥ 1.0 | Silent on 78% of series, deliberately |
+| 18 | Is it finished, or still running | 76% of homepage series have ended |
+| 19 | Sort a grid by IMDb rating | Works on Netflix's bucketed DOM. **The one feature that could break the page** — see risks |
+| 20 | Netflix: rows, search, My List, genre grids | Search needed no work |
+| 21 | Prime Video | `amazon.*` patterns unverified |
+| 22 | Per-platform badge corner | Both corners measured live |
 
 ### Good to have
 
 | # | Feature | Note |
 | ---: | --- | --- |
-| 18 | Modifier-click a badge to open IMDb | Plain clicks fall through untouched |
-| 19 | Shift+B hides all badges | Resets on hard reload, deliberately |
-| 20 | Extension icons, generated from source | `tools/make_icons.py`, no image library |
-| 21 | Landing website | `site/`. Pricing is a placeholder, no checkout |
-| 22 | Preview harness | `preview.html` |
-| 23 | Settings page — cards, real control states, AA contrast | — |
-| 24 | Grid sort by rating | **Shipped but dormant** — see pending #26 |
+| 23 | Hidden-genre picker | 184 community-documented IDs, searchable, Shift+G |
+| 24 | Filter settings UI with an active-filter summary | 21 genres as a chip grid, not a wall of checkboxes |
+| 25 | Faster imports | 11.5M row-splits reduced to ~700k |
+| 26 | Modifier-click a badge to open IMDb | Plain clicks fall through untouched |
+| 27 | Shift+B hides all badges | Resets on hard reload, deliberately |
+| 28 | Extension icons, generated from source | No image library needed |
+| 29 | Landing website | Pricing is a placeholder, no checkout |
+| 30 | Preview harness | `preview.html` |
+| 31 | Settings page — cards, real control states, AA contrast | — |
 
 ## Pending
 
 ### Core
 
-| # | Feature | Needs | Blocker |
-| ---: | --- | --- | --- |
-| 25 | Year disambiguation | basics | The IMDb side is done — `startYear` is imported and returned. What is missing is a year from *Netflix* to compare it against; the preview modal gives seasons and runtime but not a year. 184 of 426 titles (43%) share a name with other IMDb entries, and type alone does not separate a 2011 series from a 2024 one |
-| 26 | Make grid sort actually activate | — | Measured live: My List nests its tiles under 3 children, and a genre page nests 58 tiles inside 11 row containers. Neither presents tiles as flat children, so the (correct) guard bails on both. Working sorting needs tiles reordered *across* row containers, which is real work and fragile against Netflix's re-renders |
+| # | Feature | Blocker |
+| ---: | --- | --- |
+| 32 | Year disambiguation | The IMDb half is done — `startYear` is imported and returned. What is missing is a year from *Netflix* to compare against; the preview modal gives seasons and runtime but no year. 43% of titles share a name with another entry, and type alone cannot separate a 2011 series from a 2024 one |
 
 ### Good to have
 
-| # | Feature | Needs | Blocker |
-| ---: | --- | --- | --- |
-| 27 | Runtime filter — "I have 90 minutes" | basics ✓ | Data is now imported. Must be films-only: for a series `runtimeMinutes` is the episode length |
-| 28 | Movies-only / series-only filter | basics ✓ | Data is now imported. Netflix's own nav partly covers it |
-| 29 | Genre filter | basics ✓ | Data is now imported. Genres present on ~99% |
-| 30 | Offline alias resolution | basics ✓ | Partial by nature — 38% of titles carry two spellings, but some Netflix labels ("My Liberation Notes") appear in neither. Full coverage needs `akas`, 489 MB |
-| 31 | Surface hidden gems | — | Under-seen and badly-matched look identical today |
-| 32 | Netflix's hidden genres | — | Largest scope expansion on the list |
-| 33 | Best-in-row highlight | — | None |
-| 34 | Faster first import | — | Works against the three imports now in place |
-| 35 | Firefox port | — | Only worth it if Firefox is used |
-| 36 | Disney+ | — | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here |
+| # | Feature | Blocker |
+| ---: | --- | --- |
+| 33 | Firefox port | Manifest V3 with small changes; only worth it if Firefox is used |
+| 34 | Disney+ | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here |
 
-## The watching bundle — committed
+### Watching — makes the viewing better, not the choosing
 
-These are complementary features: they make watching better rather than
-choosing better, so they sit outside the test the rest of this list is sorted
-by. They are committed, and they are the candidate paid tier — the line between
-free and paid can follow the data licence rather than being drawn arbitrarily
-(see below).
+| # | Feature | Why |
+| ---: | --- | --- |
+| 35 | Stop autoplay previews on hover | The most-complained-about Netflix behaviour; the setting exists but is buried per-profile. It is also what outran our own tooltip |
+| 36 | Auto-skip intro, recap and next-episode | Netflix supplies the button; pressing it forty times a season is the annoyance |
+| 37 | Randomiser — pick one for me | Pairs with the filters already built: narrow, then let it choose. Finishes the original problem, which was never "what is good" but "I cannot decide" |
+| 38 | Playback speed, wider range and persistent across episodes | Netflix's own control is narrow and resets |
+| 39 | Keyboard shortcuts | ±10s, next/previous episode, speed |
+| 40 | Remove "Continue Watching" entries | Netflix makes this deliberately awkward |
+| 41 | Subtitle styling beyond Netflix's presets | — |
 
-**The test to apply is whether a feature needs data we do not have.** Pure UI
-manipulation costs nothing architecturally: no server, no backend, nothing to
-go down. Anything needing a data source reintroduces everything this extension
-was built to avoid, and with it the need for revenue rather than the choice of
-it.
+### Capture — text and images, never video
 
-### Costs nothing architecturally
-
-| Feature | Why |
-| --- | --- |
-| Stop autoplay previews on hover | The most-complained-about Netflix behaviour; the setting exists but is buried per-profile. It is also what outran our own tooltip |
-| Playback speed, wider range and persistent | Netflix's own control is narrow and resets between episodes |
-| Auto-skip intro, recap and next-episode | Netflix supplies the button; pressing it forty times a season is the annoyance |
-| Keyboard shortcuts | ±10s, next/previous episode, speed |
-| Remove "Continue Watching" entries | Netflix makes this deliberately awkward |
-| Randomiser — pick one for me | Pairs with the filters already built: narrow by rating, then let it choose. It finishes the original problem, which was never "what is good" but "I cannot decide" |
-| Subtitle styling beyond Netflix's presets | — |
-
-### Needs data — would undo the architecture
-
-Leaving-soon dates, cross-service availability, content and parental warnings,
-awards. All genuinely useful, all requiring a backend. Declining them is the
-same decision as declining Rotten Tomatoes, for the same reason.
+| # | Feature | Why it is possible |
+| ---: | --- | --- |
+| 42 | Subtitle and transcript capture | Netflix renders subtitles as DOM text, outside the encrypted stream. **Load-bearing assumption, not yet verified** — checking it needs playback on a real account |
+| 43 | Vocabulary and phrase lookup | Same text. Language Reactor built a large *paid* userbase on exactly this — the strongest evidence of willingness to pay anywhere near this product. Also the largest build on this list, against an established incumbent, so it deserves its own decision |
+| 44 | Timestamp bookmarks with notes | Player position is readable; the note is local |
+| 45 | Save the artwork | Box art and title treatments are ordinary CDN images, outside the DRM boundary |
+| 46 | Export My List and viewing history | The user's own account data, already rendered in the page |
 
 ### Not possible, and not to be attempted
 
 Screenshots and frame capture. Netflix video is Widevine-protected, so
-`canvas.drawImage()` on the video element yields black. Working around that
-means circumventing DRM: not a build we will ship, both because it invites the
+`canvas.drawImage()` on the video element yields black. Working around that is
+DRM circumvention: not a build we will ship, both because it invites the
 extension being pulled and because anti-circumvention law is not a grey area
 worth testing.
 
-### Capture-adjacent — legitimate, and unexpectedly rich
+## Known risks
 
-The protected thing is the *video*. Almost everything else on the page is not,
-which leaves a real feature area next to the impossible one.
+- **Grid sort can plausibly break the page.** While tiles sit in rows React did
+  not place them in, a React deletion of an individual tile calls `removeChild`
+  on the row its fiber records and throws inside Netflix's reconciler. Nothing
+  in a content script can make that safe; the code shortens the window (resize
+  snap-back, restore on unmount, concede after two fights). Netflix's observed
+  deletions are whole-subtree and its growth is append-only, so this is expected
+  to hold — but that is inference. The tell is a React error right after a
+  resize or a My List deletion; the fix is one line.
+- **The imports are untested at full size**, including a peak in-memory index of
+  roughly 100 MB during the episode pass.
+- **Prime Video is verified only on `primevideo.com`.**
 
-| Feature | Why it works |
-| --- | --- |
-| **Subtitle and transcript capture** | Netflix renders subtitles as DOM text, not as part of the encrypted stream. Copying the current line, building a transcript, or exporting one touches no protected content at all |
-| **Vocabulary and phrase lookup** | Built on the same text. A dual-subtitle or click-a-word-to-define layer is the proven shape here — Language Reactor built a large *paid* userbase on exactly this, which is the clearest evidence of willingness to pay anywhere near this product |
-| **Timestamp bookmarks with notes** | "Stopped at 42:15, the thing about the brother." Player position is readable; the note is local. No video access needed |
-| **Save the artwork** | Box art and title treatments are ordinary images served from Netflix's CDN, entirely outside the DRM boundary |
-| **Export My List and viewing history** | The user's own account data, already rendered in the page. An export is a convenience over data they can already see |
-
-The subtitle line is the interesting one strategically: it is the same
-architecture as everything else here — the data is already on the page, so it
-needs no server — and it opens onto a different audience (language learners)
-who are demonstrably willing to pay. It is also a much larger build than
-anything else on this list, and it competes with an established incumbent, so
-it deserves its own decision rather than being folded in as a feature.
-
-### Why this matters for pricing
+## Why this matters for pricing
 
 IMDb's dataset is licensed for non-commercial use, which is what makes charging
-for *ratings* legally murky. The features above use no third-party data at all —
-they are our own code manipulating a page nobody licenses to us.
+for *ratings* legally murky. The Watching and Capture groups use no third-party
+data at all — they are our own code manipulating a page nobody licenses to us.
 
 So the free/paid line can follow the licence boundary rather than being drawn
 arbitrarily: **ratings stay free permanently**, honouring the licence and
 serving as the acquisition route (store search for "imdb netflix" is the
-channel), while the playback and quality-of-life bundle is what is sold. That
-is a split with an argument behind it.
-
----
+channel), while the watching and capture bundle is what is sold. That is a
+split with an argument behind it.
 
 ## Dropped
 
