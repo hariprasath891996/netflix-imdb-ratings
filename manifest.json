@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IMDb Ratings for Netflix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shows IMDb ratings on Netflix title cards, colour-coded, with no API key required.",
   "permissions": [
     "storage"
@@ -23,10 +23,12 @@
       ],
       "js": [
         "defaults.js",
-        "content.js"
+        "content.js",
+        "sort.js"
       ],
       "css": [
-        "content.css"
+        "content.css",
+        "sort.css"
       ],
       "run_at": "document_idle"
     }

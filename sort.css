@@ -1,0 +1,120 @@
+/* The grid sort control. Everything here is prefixed nrx-sort- so it cannot
+   reach a badge, a chip or the tooltip — content.css owns those, and this file
+   is only ever allowed to read what they say.
+
+   The control sits above the grid rather than over it, so unlike the badge it
+   is not fighting artwork for legibility and can be quiet. It is a utility bar,
+   not a header: sized to its own text, borrowing Netflix's type and its dark
+   surfaces, and loud in exactly one place — see the pressed state below. */
+
+.nrx-sort-bar {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  margin: 0 0 14px;
+  padding: 6px 10px;
+  border: 1px solid #2f2f2f;
+  border-radius: 6px;
+  background: #181818;
+
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.nrx-sort-label {
+  color: #8c8c8c;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nrx-sort-btn {
+  /* Netflix's own reset does not reach an element it never rendered, so the
+     button starts from the UA default and has to be talked all the way down. */
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid #4d4d4d;
+  border-radius: 4px;
+  background: transparent;
+
+  color: #e5e5e5;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.4;
+
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.nrx-sort-btn:hover:not(:disabled) {
+  border-color: #8c8c8c;
+  background: #262626;
+}
+
+/* :focus-visible rather than :focus, and white at 2px — the same ring
+   content.css draws on a badge, because a user tabbing between the two should
+   not have to learn two focus styles. */
+.nrx-sort-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* The state hook is the accessibility attribute itself, so the pressed look and
+   the announced state can never drift apart. */
+.nrx-sort-btn[aria-pressed="true"] {
+  border-color: transparent;
+  background: #333;
+  color: #fff;
+  cursor: default;
+}
+
+/* Netflix red, once, on the one state that deserves a loud signal: the grid you
+   are looking at is no longer in Netflix's order, it is in ours. At rest the
+   active option is the neutral grey above, so the control is invisible until it
+   has actually done something. White on #e50914 measures 4.8:1 — AA for this
+   size, and this is the only place the colour appears. */
+.nrx-sort-btn[data-mode="rating"][aria-pressed="true"] {
+  background: #e50914;
+}
+
+.nrx-sort-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* "48 of 58 rated". #b3b3b3 on #181818 is 8.4:1 — muted enough to read as a
+   footnote, never so muted that the number becomes decoration. */
+.nrx-sort-status {
+  color: #b3b3b3;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ratings that landed after the sort and have not been folded in yet. Amber is
+   already the extension's "hold on" colour, and it is the honest one here: the
+   order on screen is known to be slightly stale, and this says so instead of
+   silently rearranging the grid under the pointer. */
+.nrx-sort-pending {
+  color: #e5a00d;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Set as a property in sort.js, so the UA rule has to be restated to outrank
+   the colour above. */
+.nrx-sort-pending[hidden] {
+  display: none;
+}
+
+/* The tiles themselves never animate — CSS `order` is not an animatable
+   property, and a 58-tile crossfade would be exactly the chaos the deferred
+   restack exists to avoid. Only the button's own hover moves, so this is the
+   whole of what reduced motion has to switch off. */
+@media (prefers-reduced-motion: reduce) {
+  .nrx-sort-btn {
+    transition: none;
+  }
+}
