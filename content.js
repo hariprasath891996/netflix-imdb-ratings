@@ -17,8 +17,10 @@ const CARD_SELECTORS = [
   '[data-uia="progress-card"]'  // Continue Watching
 ].join(",");
 
-const TIER_HIGH = 7.5;
-const TIER_MID = 6.5;
+// The RAG thresholds are user-configurable (see options.html). RAG_DEFAULTS
+// comes from defaults.js, which the manifest loads before this file. These are
+// mutable because a settings change re-colours badges in place — no refetch.
+let thresholds = { ...RAG_DEFAULTS };
 
 let warnedAboutKey = false;
 
@@ -60,9 +62,19 @@ function hostFor(card) {
 function tierFor(rating) {
   const value = parseFloat(rating);
   if (Number.isNaN(value)) return "unknown";
-  if (value >= TIER_HIGH) return "high";
-  if (value >= TIER_MID) return "mid";
+  if (value >= thresholds.tierHigh) return "high";
+  if (value >= thresholds.tierMid) return "mid";
   return "low";
+}
+
+// Changing a threshold changes only which colour a score maps to, never the
+// score itself. So we keep the rating on the element and recolour in place
+// rather than re-fetching anything.
+function recolourAll() {
+  for (const badge of document.querySelectorAll(".nrx-badge")) {
+    const rating = badge.dataset.rating;
+    if (rating) badge.dataset.tier = tierFor(rating);
+  }
 }
 
 function renderBadge(host, result) {
@@ -76,6 +88,7 @@ function renderBadge(host, result) {
     badge.textContent = "—";
     badge.title = "No IMDb rating found for this title";
   } else {
+    badge.dataset.rating = result.rating;
     badge.dataset.tier = tierFor(result.rating);
     badge.textContent = result.rating;
     badge.title = result.votes
@@ -153,4 +166,32 @@ const pageObserver = new MutationObserver(() => {
 });
 
 pageObserver.observe(document.body, { childList: true, subtree: true });
-scan();
+
+// A settings change should take effect on the open tab immediately — having to
+// reload Netflix to see a threshold tweak would make tuning them miserable.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  let touched = false;
+  for (const key of ["tierHigh", "tierMid"]) {
+    if (changes[key]) {
+      thresholds[key] = changes[key].newValue ?? RAG_DEFAULTS[key];
+      touched = true;
+    }
+  }
+  if (touched) recolourAll();
+});
+
+// Load saved thresholds before the first scan, so nothing is ever painted with
+// the wrong colours and then corrected a moment later.
+(async function start() {
+  try {
+    const saved = await chrome.storage.local.get(["tierHigh", "tierMid"]);
+    thresholds = {
+      tierHigh: typeof saved.tierHigh === "number" ? saved.tierHigh : RAG_DEFAULTS.tierHigh,
+      tierMid: typeof saved.tierMid === "number" ? saved.tierMid : RAG_DEFAULTS.tierMid
+    };
+  } catch (e) {
+    // Storage unavailable is not fatal — the defaults are perfectly usable.
+  }
+  scan();
+})();

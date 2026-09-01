@@ -30,6 +30,25 @@
     }
     input:focus { outline: none; border-color: #7ab8ff; }
     .row { display: flex; gap: 8px; margin-top: 12px; }
+    hr { margin: 18px 0 14px; border: 0; border-top: 1px solid #2e2e2e; }
+    h2 { margin: 0 0 4px; font-size: 13px; }
+    .thresholds { display: flex; gap: 10px; }
+    .thresholds div { flex: 1; }
+    .swatch {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 4px; padding: 6px 8px;
+      border-radius: 4px; background: #101010;
+      font-size: 12px; color: #a3a3a3;
+    }
+    .chip {
+      padding: 2px 7px; border-radius: 4px;
+      background: rgba(0,0,0,.82); box-shadow: inset 0 0 0 1px currentColor;
+      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    }
+    .chip.high { color: #46d369; } .chip.mid { color: #e5a00d; }
+    .chip.low { color: #e87c78; }
+    .link { margin-top: 10px; font-size: 12px; }
+    .link a { cursor: pointer; }
     button {
       flex: 1;
       padding: 8px 10px;
@@ -62,8 +81,34 @@
     <button id="clear" class="secondary">Clear cache</button>
   </div>
 
+  <hr>
+
+  <h2>Rating colours</h2>
+  <p>Where green becomes amber, and amber becomes red.</p>
+
+  <div class="thresholds">
+    <div>
+      <label for="high">Green at or above</label>
+      <input id="high" type="number" min="0" max="10" step="0.1" inputmode="decimal">
+    </div>
+    <div>
+      <label for="mid">Amber at or above</label>
+      <input id="mid" type="number" min="0" max="10" step="0.1" inputmode="decimal">
+    </div>
+  </div>
+
+  <div class="swatch"><span class="chip high" id="egHigh">8.4</span> <span id="txtHigh"></span></div>
+  <div class="swatch"><span class="chip mid"  id="egMid">6.9</span> <span id="txtMid"></span></div>
+  <div class="swatch"><span class="chip low"  id="egLow">5.2</span> <span id="txtLow"></span></div>
+
+  <div class="row">
+    <button id="saveTiers">Save colours</button>
+    <button id="resetTiers" class="secondary">Reset</button>
+  </div>
+
   <div id="status" role="status"></div>
 
+  <script src="defaults.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

@@ -3,23 +3,30 @@
   "name": "IMDb Ratings for Netflix",
   "version": "0.1.0",
   "description": "Shows IMDb ratings on Netflix title cards, so you can pick something without leaving the page.",
-
-  "permissions": ["storage"],
-  "host_permissions": ["https://www.omdbapi.com/*"],
-
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.omdbapi.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
-
   "content_scripts": [
     {
-      "matches": ["https://www.netflix.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "matches": [
+        "https://www.netflix.com/*"
+      ],
+      "js": [
+        "defaults.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
-
   "options_page": "options.html",
   "action": {
     "default_title": "IMDb Ratings for Netflix",

@@ -6,12 +6,16 @@ Chrome extension that puts the rating straight onto the card.
 
 Ratings are colour-coded so you can scan a row without reading the numbers:
 
-| Badge | Meaning |
+| Badge | Default |
 | --- | --- |
 | 🟢 green | 7.5 and above |
 | 🟠 amber | 6.5 – 7.4 |
 | 🔴 red | below 6.5 |
 | ⚪ grey | no IMDb rating found |
+
+Those cut-offs are a taste call, not a fact, so they're editable in the
+extension's settings. Changes apply to an open Netflix tab immediately — only
+the colour mapping changes, so nothing is looked up again.
 
 ## Install
 
@@ -38,6 +42,8 @@ Three files do the work:
 - **`background.js`** is the service worker. It makes the OMDb call, caches
   every result for 30 days, and dedupes in-flight requests so one title
   appearing on five rows is still one network call.
+- **`defaults.js`** holds the default thresholds, shared by the content script
+  and the settings page so the numbers are defined in one place.
 - **`content.css`** styles the badge. It sits top-right on purpose: Netflix
   uses the top-left corner for its TOP 10 ribbon and the bottom-left for
   "New Season" / "Recently added" tags.
