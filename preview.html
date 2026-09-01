@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Badge preview — IMDb Ratings for Netflix</title>
+
+  <!-- The real stylesheet the extension injects. Nothing is duplicated here,
+       so this page is always an honest preview of the shipping badge. -->
+  <link rel="stylesheet" href="content.css">
+
+  <style>
+    /* Everything below only fakes Netflix's surroundings so the badge can be
+       judged in context. None of it ships. */
+    body {
+      margin: 0;
+      padding: 32px 0 48px;
+      background: #141414;
+      color: #fff;
+      font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+    }
+    h1 { margin: 0 32px 4px; font-size: 20px; font-weight: 700; }
+    .sub { margin: 0 32px 28px; font-size: 13px; color: #8c8c8c; }
+    h2 { margin: 0 32px 10px; font-size: 15px; font-weight: 600; color: #e5e5e5; }
+    .row { display: flex; gap: 6px; padding: 0 32px 30px; overflow-x: auto; }
+    .title-card { flex: 0 0 220px; }
+    .boxart-container {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+    }
+    .art { position: absolute; inset: 0; }
+    .name {
+      position: relative;
+      z-index: 2;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      text-shadow: 0 1px 4px rgba(0,0,0,.9);
+    }
+    .scrim { position: absolute; inset: 0; z-index: 1;
+      background: linear-gradient(to top, rgba(0,0,0,.75), transparent 55%); }
+    .legend { margin: 8px 32px 0; display: flex; gap: 18px; flex-wrap: wrap;
+      font-size: 12.5px; color: #a3a3a3; align-items: center; }
+    .legend .nrx-badge { position: static; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  </style>
+</head>
+<body>
+  <h1>Badge preview</h1>
+  <p class="sub">Fake Netflix rows, real stylesheet. This is how the extension will look on a live page.</p>
+
+  <h2>Trending Now</h2>
+  <div class="row" id="row-a"></div>
+
+  <h2>Because you watched Dune</h2>
+  <div class="row" id="row-b"></div>
+
+  <div class="legend">
+    <span><span class="nrx-badge" data-tier="high">8.4</span> 7.5 and above</span>
+    <span><span class="nrx-badge" data-tier="mid">6.9</span> 6.5 – 7.4</span>
+    <span><span class="nrx-badge" data-tier="low">5.2</span> below 6.5</span>
+    <span><span class="nrx-badge" data-tier="unknown">—</span> no rating found</span>
+  </div>
+
+  <script>
+    // Stand-in for what background.js returns from OMDb.
+    const rows = {
+      "row-a": [
+        { name: "The Dark Knight",      rating: "9.0", art: "#1c2b3a,#0d1218" },
+        { name: "Rebel Moon",           rating: "5.6", art: "#3a2438,#150d16" },
+        { name: "Arcane",               rating: "9.0", art: "#2b1f4a,#120d21" },
+        { name: "Red Notice",           rating: "6.3", art: "#4a3320,#1a120a" },
+        { name: "Nimona",               rating: "7.5", art: "#1f3a3a,#0c1919" }
+      ],
+      "row-b": [
+        { name: "Blade Runner 2049",    rating: "8.0", art: "#4a2a1c,#1a0f0a" },
+        { name: "Annihilation",         rating: "6.8", art: "#1c3a2a,#0b1a12" },
+        { name: "The Midnight Sky",     rating: "5.6", art: "#2a3040,#10131b" },
+        { name: "Untitled Doc",         rating: null,  art: "#2e2e2e,#141414" },
+        { name: "Interstellar",         rating: "8.7", art: "#20304a,#0c121d" }
+      ]
+    };
+
+    const TIER_HIGH = 7.5, TIER_MID = 6.5;
+    function tierFor(r) {
+      const v = parseFloat(r);
+      if (Number.isNaN(v)) return "unknown";
+      if (v >= TIER_HIGH) return "high";
+      if (v >= TIER_MID) return "mid";
+      return "low";
+    }
+
+    for (const [rowId, items] of Object.entries(rows)) {
+      const row = document.getElementById(rowId);
+      for (const item of items) {
+        const [c1, c2] = item.art.split(",");
+        const card = document.createElement("div");
+        card.className = "title-card";
+        card.innerHTML = `
+          <div class="boxart-container nrx-host">
+            <div class="art" style="background:linear-gradient(145deg,${c1},${c2})"></div>
+            <div class="scrim"></div>
+            <div class="name">${item.name}</div>
+          </div>`;
+        const badge = document.createElement("div");
+        badge.className = "nrx-badge";
+        badge.dataset.tier = tierFor(item.rating);
+        badge.textContent = item.rating ?? "—";
+        card.querySelector(".boxart-container").appendChild(badge);
+        row.appendChild(card);
+      }
+    }
+  </script>
+</body>
+</html>
