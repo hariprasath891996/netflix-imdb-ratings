@@ -77,8 +77,12 @@ worse answer than an unrated one with the right name.
 - **`content.css`** styles the badge. It sits top-right on purpose: Netflix
   uses the top-left corner for its TOP 10 ribbon and the bottom-left for
   "New Season" / "Recently added" tags.
-- **`preview.html`** is a local harness for eyeballing the badge without
-  loading the extension. Not part of the extension itself.
+- **`preview.html`** is a local harness for eyeballing the badge and tooltip
+  without loading the extension. Not part of the extension itself.
+
+Badges only appear on cards you actually scroll to, and a Netflix tab sitting
+in the background is left alone entirely — browsers suspend the visibility
+observer that drives lookups when a tab isn't being displayed.
 
 ## Coverage
 

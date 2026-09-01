@@ -30,8 +30,44 @@
   background: rgba(0, 0, 0, 0.82);
   box-shadow: inset 0 0 0 1px currentColor;
 
-  pointer-events: none;
+  /* The badge must take pointer events or it can never be hovered — the
+     tooltip below depends on it. It sits inside the card's own anchor, so a
+     hover still counts as hovering the card and Netflix's preview is
+     unaffected, and a click just falls through to the card as before. */
+  pointer-events: auto;
   user-select: none;
+  cursor: default;
+}
+
+/* Our own tooltip rather than a native title attribute. Native tooltips wait
+   about a second, by which time Netflix has expanded the card out from under
+   the cursor. This one appears instantly and is rendered to <body> with a
+   fixed position, so Netflix's overlays can't clip or cover it. */
+.nrx-tip {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: 260px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  background: #000;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .6), inset 0 0 0 1px #333;
+  color: #f2f2f2;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.nrx-tip[hidden] { display: none; }
+
+.nrx-tip b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.nrx-tip .nrx-alias {
+  color: #e5a00d;
 }
 
 /* Colour is the whole point: you should be able to scan a row without

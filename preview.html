@@ -69,20 +69,49 @@
     // Stand-in for what background.js returns from the IMDb dataset.
     const rows = {
       "row-a": [
-        { name: "The Dark Knight",      rating: "9.0", art: "#1c2b3a,#0d1218" },
-        { name: "Rebel Moon",           rating: "5.6", art: "#3a2438,#150d16" },
-        { name: "Arcane",               rating: "9.0", art: "#2b1f4a,#120d21" },
-        { name: "Red Notice",           rating: "6.3", art: "#4a3320,#1a120a" },
-        { name: "Nimona",               rating: "7.5", art: "#1f3a3a,#0c1919" }
+        { name: "The Dark Knight",      rating: "9.0", votes: 3012044, year: 2008, art: "#1c2b3a,#0d1218" },
+        { name: "Rebel Moon",           rating: "5.6", votes: 118203,  year: 2023, art: "#3a2438,#150d16" },
+        { name: "Arcane",               rating: "9.0", votes: 348912,  year: 2021, art: "#2b1f4a,#120d21" },
+        { name: "Red Notice",           rating: "6.3", votes: 244010,  year: 2021, art: "#4a3320,#1a120a" },
+        { name: "Nimona",               rating: "7.5", votes: 78221,   year: 2023, art: "#1f3a3a,#0c1919" }
       ],
       "row-b": [
-        { name: "Blade Runner 2049",    rating: "8.0", art: "#4a2a1c,#1a0f0a" },
-        { name: "Annihilation",         rating: "6.8", art: "#1c3a2a,#0b1a12" },
-        { name: "The Midnight Sky",     rating: "5.6", art: "#2a3040,#10131b" },
-        { name: "Untitled Doc",         rating: null,  art: "#2e2e2e,#141414" },
-        { name: "Interstellar",         rating: "8.7", art: "#20304a,#0c121d" }
+        { name: "Laapataa Ladies",      rating: "8.3", votes: 61964, year: 2023, label: "Lost Ladies", art: "#4a2a1c,#1a0f0a" },
+        { name: "My Liberation Notes",  rating: "8.2", votes: 7584,  year: 2022, label: "My Liberation Diary", art: "#1c3a2a,#0b1a12" },
+        { name: "The Midnight Sky",     rating: "5.6", votes: 92104, year: 2020, art: "#2a3040,#10131b" },
+        { name: "Hustle 5",             rating: null,  art: "#2e2e2e,#141414" },
+        { name: "Interstellar",         rating: "8.7", votes: 2284119, year: 2014, art: "#20304a,#0c121d" }
       ]
     };
+
+    // Mirrors the tooltip logic in content.js so the harness shows the real
+    // thing rather than an approximation of it.
+    let tipElement = null;
+    function ensureTip() {
+      if (tipElement && tipElement.isConnected) return tipElement;
+      tipElement = document.createElement("div");
+      tipElement.className = "nrx-tip";
+      tipElement.hidden = true;
+      document.body.appendChild(tipElement);
+      return tipElement;
+    }
+    function showTip(badge) {
+      const text = badge.dataset.tip;
+      if (!text) return;
+      const tip = ensureTip();
+      tip.textContent = text;
+      tip.hidden = false;
+      const anchor = badge.getBoundingClientRect();
+      const box = tip.getBoundingClientRect();
+      let left = anchor.left + anchor.width / 2 - box.width / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - box.width - 8));
+      let top = anchor.top - box.height - 8;
+      if (top < 8) top = anchor.bottom + 8;
+      tip.style.left = `${Math.round(left)}px`;
+      tip.style.top = `${Math.round(top)}px`;
+    }
+    function hideTip() { if (tipElement) tipElement.hidden = true; }
+    window.showTip = showTip; window.hideTip = hideTip;
 
     const TIER_HIGH = 7.5, TIER_MID = 6.5;
     function tierFor(r) {
@@ -109,6 +138,20 @@
         badge.className = "nrx-badge";
         badge.dataset.tier = tierFor(item.rating);
         badge.textContent = item.rating ?? "—";
+
+        if (item.rating) {
+          const bits = [`IMDb ${item.rating}`];
+          if (item.votes) bits.push(`${item.votes.toLocaleString()} votes`);
+          if (item.year) bits.push(String(item.year));
+          let tip = bits.join(" · ");
+          if (item.label) tip += `\n${item.label}  (closest match)`;
+          badge.dataset.tip = tip;
+        } else {
+          badge.dataset.tip = "No IMDb rating found";
+        }
+        badge.addEventListener("mouseenter", () => showTip(badge));
+        badge.addEventListener("mouseleave", hideTip);
+
         card.querySelector(".boxart-container").appendChild(badge);
         row.appendChild(card);
       }

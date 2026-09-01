@@ -85,6 +85,53 @@ function recolourAll() {
   }
 }
 
+// --- tooltip --------------------------------------------------------------
+// One shared element, reused by every badge. It lives on <body> with a fixed
+// position so that Netflix expanding a card on hover can neither clip it nor
+// paint over it.
+let tipElement = null;
+
+function ensureTip() {
+  if (tipElement && tipElement.isConnected) return tipElement;
+  tipElement = document.createElement("div");
+  tipElement.className = "nrx-tip";
+  tipElement.hidden = true;
+  document.body.appendChild(tipElement);
+  return tipElement;
+}
+
+function showTip(badge) {
+  const text = badge.dataset.tip;
+  if (!text) return;
+
+  const tip = ensureTip();
+  tip.textContent = text;
+  tip.hidden = false;
+
+  // Measure only after the text is in, or the box is the previous size.
+  const anchor = badge.getBoundingClientRect();
+  const box = tip.getBoundingClientRect();
+
+  let left = anchor.left + anchor.width / 2 - box.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - box.width - 8));
+
+  // Prefer above the badge; flip below when there isn't room, which happens on
+  // the top row.
+  let top = anchor.top - box.height - 8;
+  if (top < 8) top = anchor.bottom + 8;
+
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function hideTip() {
+  if (tipElement) tipElement.hidden = true;
+}
+
+// A fixed-position tooltip would otherwise hang in place while the row scrolls
+// away beneath it.
+addEventListener("scroll", hideTip, { passive: true, capture: true });
+
 function renderBadge(host, result) {
   if (host.querySelector(".nrx-badge")) return;
 
@@ -94,7 +141,7 @@ function renderBadge(host, result) {
   if (!result.found || !result.rating) {
     badge.dataset.tier = "unknown";
     badge.textContent = "—";
-    badge.title = "No IMDb rating found for this title";
+    badge.dataset.tip = "No IMDb rating found";
   } else {
     badge.dataset.rating = result.rating;
     badge.dataset.tier = tierFor(result.rating);
@@ -106,11 +153,15 @@ function renderBadge(host, result) {
     const parts = [`IMDb ${result.rating}`];
     if (result.votes) parts.push(`${result.votes.toLocaleString()} votes`);
     if (result.year) parts.push(String(result.year));
-    const detail = parts.join(" · ");
-    badge.title = result.exact === false && result.label
-      ? `${detail}\nmatched as "${result.label}"`
-      : detail;
+
+    let tip = parts.join(" · ");
+    if (result.label) tip += `\n${result.label}`;
+    if (result.exact === false) tip += "  (closest match)";
+    badge.dataset.tip = tip;
   }
+
+  badge.addEventListener("mouseenter", () => showTip(badge));
+  badge.addEventListener("mouseleave", hideTip);
 
   host.classList.add("nrx-host");
   host.appendChild(badge);
