@@ -531,12 +531,13 @@
   <main class="stack">
 
     <section class="card" aria-labelledby="h-data">
-      <h2 id="h-data">Ratings data</h2>
-      <div class="state" id="dataState" data-ok="no">
-        <span class="dot" aria-hidden="true"></span><span id="dataText">Checking…</span>
-      </div>
+      <h2 id="h-data">IMDb data</h2>
+      <p class="hint">Three files, downloaded to this machine. Ratings power the
+        badges; metadata and episodes power season strips, filters, and
+        finished&nbsp;/&nbsp;still&nbsp;running.</p>
+      <div class="dsets" id="dsets"></div>
       <div class="row">
-        <button id="refresh" type="button" class="btn primary">Refresh dataset</button>
+        <button id="refresh" type="button" class="btn primary">Refresh ratings</button>
         <button id="clearTitles" type="button" class="btn">Clear matches</button>
       </div>
     </section>

@@ -23,8 +23,6 @@ async function ask(message) {
 }
 
 // --- ratings dataset ------------------------------------------------------
-const dataState = document.getElementById("dataState");
-const dataText = document.getElementById("dataText");
 const refreshButton = document.getElementById("refresh");
 
 function ago(ts) {
@@ -34,29 +32,72 @@ function ago(ts) {
   return `${days} days ago`;
 }
 
+// The worker imports three files, not one, and two of them are what make the
+// season strip, the filters and finished/running work at all. Reporting only
+// ratings meant a failed or unfinished basics import looked like nothing was
+// wrong, while every feature that depends on it silently did nothing.
+const DATASETS = [
+  { key: "ratings", label: "Ratings",  unit: "titles", note: "powers the badges" },
+  { key: "basics",  label: "Metadata", unit: "titles", note: "type, year, runtime, genres" },
+  { key: "episode", label: "Episodes", unit: "series", note: "season strips" }
+];
+
+function ago(ts) {
+  const days = Math.floor((Date.now() - ts) / 86400000);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
+function describeDataset(info, progress) {
+  if (progress && progress.phase === "failed") {
+    return { state: "failed", note: "failed — try refresh" };
+  }
+  if (progress && progress.phase && progress.phase !== "done" && !info?.ready) {
+    if (progress.phase === "downloading") return { state: "busy", note: "downloading…" };
+    const rows = Number(progress.rows) || 0;
+    return { state: "busy", note: rows ? `${rows.toLocaleString()} rows…` : "importing…" };
+  }
+  if (!info || !info.ready) return { state: "missing", note: "not imported" };
+  const count = Number(info.count) || 0;
+  return {
+    state: info.stale ? "stale" : "ready",
+    note: `${count.toLocaleString()} · ${ago(info.builtAt)}${info.stale ? " · refresh due" : ""}`
+  };
+}
+
 async function paintStatus() {
-  const { importProgress } = await chrome.storage.local.get("importProgress");
-  const info = await chrome.runtime.sendMessage({ type: "status" });
-
-  if (importProgress && importProgress.phase !== "done" && !info.ready) {
-    dataState.dataset.ok = "busy";
-    dataText.textContent = importProgress.phase === "downloading"
-      ? "Downloading IMDb dataset…"
-      : `Importing… ${importProgress.rows.toLocaleString()} titles`;
-    refreshButton.disabled = true;
-    return;
+  const stored = await chrome.storage.local.get("datasetProgress");
+  const progress = stored.datasetProgress || {};
+  let info;
+  try {
+    info = await chrome.runtime.sendMessage({ type: "status" });
+  } catch {
+    info = null;
   }
 
-  refreshButton.disabled = false;
-  if (!info.ready) {
-    dataState.dataset.ok = "no";
-    dataText.textContent = "Not imported yet";
-    return;
-  }
-  dataState.dataset.ok = info.stale ? "busy" : "yes";
-  dataText.textContent =
-    `${info.count.toLocaleString()} rated titles · updated ${ago(info.builtAt)}` +
-    (info.stale ? " · refresh due" : "");
+  const byName = info?.datasets || {};
+  const host = document.getElementById("dsets");
+  let busy = false;
+
+  const rows = DATASETS.map(({ key, label, unit }) => {
+    // Fall back to the flat legacy fields for ratings, so an older worker still
+    // reports something rather than reading as "not imported".
+    const meta = byName[key] || (key === "ratings" ? info : null);
+    const state = describeDataset(meta, progress[key]);
+    if (state.state === "busy") busy = true;
+    const detail = state.state === "ready" || state.state === "stale"
+      ? state.note.replace("·", `${unit} ·`)
+      : state.note;
+    return `<div class="dset" data-state="${state.state}">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="dset-name">${label}</span>
+      <span class="dset-note">${detail}</span>
+    </div>`;
+  });
+
+  host.innerHTML = rows.join("");
+  refreshButton.disabled = busy;
 }
 paintStatus();
 // The import runs in the worker, so poll while this page is open to keep the
