@@ -14,7 +14,16 @@
 const CARD_SELECTORS = [
   '[data-uia="standard-card"]', // ordinary row cards
   '[data-uia="ranked-card"]',   // the Top 10 rows
-  '[data-uia="progress-card"]'  // Continue Watching
+  '[data-uia="progress-card"]', // Continue Watching
+
+  // My List and the genre pages are grids, not rows, and build their tiles
+  // from a different component: a static DIV with no aria-label of its own,
+  // where the three above are anchors that carry the title directly. Both
+  // differences are already handled — titleFromCard() falls through to a
+  // descendant [aria-label], and .nrx-host supplies the positioning context
+  // the badge needs. Between them these four are every surface confirmed on
+  // the live site; nothing is listed here on a guess.
+  '[data-uia="title-card-container"]'
 ].join(",");
 
 // Netflix's hover preview replaces the card with a mini-player, taking our
@@ -43,11 +52,13 @@ let announcedImport = false;
 let retryTimer = null;
 
 // --- reading a title off a card ------------------------------------------
-// A card is an anchor carrying the title in its own aria-label:
+// A row card is an anchor carrying the title in its own aria-label:
 //   <a href="/browse?jbv=70155590" aria-label="The Mentalist" data-uia="standard-card">
-// Note the label is on the card element itself, not a descendant — so check
-// the element's own attribute before searching inside it. The <img> alt is
-// empty on current Netflix, but it is kept as a fallback in case that changes.
+// So check the element's own attribute before searching inside it. A grid tile
+// (My List, genre pages) is the other shape: an unlabelled DIV wrapping an
+// <a aria-label="Tenet">, which is what the descendant lookup is for. The
+// <img> alt is empty on current Netflix, but it is kept as a fallback in case
+// that changes.
 function titleFromCard(card) {
   const own = card.getAttribute("aria-label");
   if (own && own.trim()) return clean(own);
@@ -78,8 +89,10 @@ function clean(raw) {
 }
 
 // The badge is absolutely positioned, so it needs a positioned ancestor. The
-// card anchor itself is the right box; .nrx-host in the stylesheet gives it
-// position:relative when it doesn't already have one.
+// card element itself is the right box; .nrx-host in the stylesheet gives it
+// position:relative when it doesn't already have one. That matters most for
+// the grid tiles, which are position:static — without .nrx-host the badge
+// would escape to whatever ancestor Netflix happened to position.
 function hostFor(card) {
   return card;
 }
@@ -176,6 +189,81 @@ function hideTip() {
 // away beneath it.
 addEventListener("scroll", hideTip, { passive: true, capture: true });
 
+// --- opening the IMDb page from a badge -----------------------------------
+// The badge sits inside Netflix's own card anchor, so every click on it is
+// also a click on the card. That is why a plain click must be left completely
+// alone: it belongs to Netflix, and intercepting it would break the one thing
+// people already expect a card to do. Only the modifier chord — the same one
+// that opens a link in a new tab everywhere else in the browser — is ours, and
+// preventDefault() is reached only on that path.
+const MODIFIER_LABEL =
+  /mac/i.test(navigator.userAgentData?.platform || navigator.platform) ? "⌘" : "Ctrl";
+
+function openImdb(imdbID) {
+  // noopener because the new tab is IMDb's page, not ours; it has no business
+  // holding a handle back to the Netflix window.
+  window.open(`https://www.imdb.com/title/${imdbID}/`, "_blank", "noopener");
+}
+
+function linkToImdb(badge, imdbID) {
+  badge.dataset.imdbId = imdbID; // also what the stylesheet keys the cursor off
+
+  // A link that only a mouse can reach is not a link. Only badges that
+  // actually resolved to an id get a tab stop, so a grey "—" stays inert
+  // rather than adding a dead stop to every card in a row.
+  badge.tabIndex = 0;
+  badge.setAttribute("role", "link");
+
+  badge.addEventListener("click", (event) => {
+    if (!(event.metaKey || event.ctrlKey)) return; // plain click: Netflix's
+    event.preventDefault();  // stops the card anchor navigating as well
+    event.stopPropagation(); // stops Netflix's own delegated card handler
+    openImdb(imdbID);
+  });
+
+  // From the keyboard there is no plain-click case to protect: focus is on the
+  // badge, so Enter can only have meant the badge.
+  badge.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    openImdb(imdbID);
+  });
+}
+
+// --- hiding every badge ---------------------------------------------------
+// Shift+B, for badges. Netflix's own shortcuts are unmodified single keys —
+// space, the arrows, f, m and friends during playback — and the browser's are
+// all Ctrl/Cmd/Alt chords, so plain Shift is the gap between the two. The
+// modified chords are rejected explicitly rather than ignored, so Cmd+Shift+B
+// still reaches the browser's bookmarks bar untouched.
+const HIDDEN_CLASS = "nrx-badges-hidden";
+
+function isTypingTarget(target) {
+  if (!(target instanceof Element)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+// Capture, because Netflix binds its playback keys on the document and stops
+// propagation on the ones it claims — listening on the way down means the
+// shortcut still works over a playing title.
+addEventListener("keydown", (event) => {
+  if (!event.shiftKey || event.key.toLowerCase() !== "b") return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (isTypingTarget(event.target)) return; // Netflix's search box, mainly
+
+  // The class lives on <html>, which survives Netflix's client-side
+  // navigation, so the choice holds for the whole browsing session without
+  // needing a storage key of its own.
+  document.documentElement.classList.toggle(HIDDEN_CLASS);
+
+  // A tooltip left open would float over the artwork we were just asked to
+  // clear.
+  hideTip();
+}, { capture: true });
+
 function renderBadge(host, result) {
   if (host.querySelector(".nrx-badge")) return;
 
@@ -207,6 +295,16 @@ function renderBadge(host, result) {
     let tip = parts.join(" · ");
     if (result.label) tip += `\n${result.label}`;
     if (result.exact === false) tip += "  (closest match)";
+
+    // A rating with no id is a real state (on IMDb, unrated), and those badges
+    // must not pretend to be links. The tooltip carries the hint because the
+    // chord is otherwise invisible — a cursor change alone never told anyone
+    // which modifier to hold.
+    if (result.imdbID) {
+      linkToImdb(badge, result.imdbID);
+      tip += `\n${MODIFIER_LABEL}-click to open IMDb`;
+    }
+
     badge.dataset.tip = tip;
   }
 
@@ -337,6 +435,14 @@ function scan(root = document) {
   const cards = root.querySelectorAll(CARD_SELECTORS);
   for (const card of cards) {
     if (card.dataset.nrxSeen) continue;
+
+    // "title-card-container" is a wrapper, unlike the other three, so a single
+    // tile can match twice and take two badges. Badging only the innermost
+    // match keeps it to one, on the box that actually frames the artwork. Left
+    // unclaimed rather than marked seen, since Netflix rebuilds these subtrees
+    // and the inner card may not exist yet on this pass.
+    if (card.querySelector(CARD_SELECTORS)) continue;
+
     card.dataset.nrxSeen = "1";
     visibility.observe(card);
   }

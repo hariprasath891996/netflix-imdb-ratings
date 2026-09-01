@@ -34,10 +34,27 @@
   /* The badge must take pointer events or it can never be hovered — the
      tooltip below depends on it. It sits inside the card's own anchor, so a
      hover still counts as hovering the card and Netflix's preview is
-     unaffected, and a click just falls through to the card as before. */
+     unaffected, and a plain click still falls through to the card. Only the
+     modifier chord is intercepted; see linkToImdb() in content.js. */
   pointer-events: auto;
   user-select: none;
   cursor: default;
+}
+
+/* Only a badge that resolved to an IMDb id is worth clicking, and data-imdb-id
+   is set exactly then — so the pointer never promises a link that isn't there.
+   A grey "—" badge keeps the default cursor. */
+.nrx-badge[data-imdb-id] {
+  cursor: pointer;
+}
+
+/* :focus-visible rather than :focus, so the ring appears for the keyboard user
+   who tabbed here and not for the mouse user who just clicked. White to match
+   the focus ring Netflix draws on its own controls, offset so it reads clearly
+   against artwork of any colour. */
+.nrx-badge[data-imdb-id]:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 /* Our own tooltip rather than a native title attribute. Native tooltips wait
@@ -140,4 +157,39 @@
   margin-left: 5px;
   color: #9a9a9a;
   font-weight: 400;
+}
+
+
+/* --- Shift+B: get out of the way -----------------------------------------
+   Sometimes you just want to look at the artwork. visibility, not display:
+   collapsing the chip would reflow Netflix's metadata row, and visibility also
+   takes the badge out of hover and focus for free, so nothing hidden can still
+   be tooltipped or tabbed to. The card itself is untouched — no pointer-events,
+   nothing — so Netflix's hover preview and click handling carry on exactly as
+   they do with the badges showing.
+
+   The chip goes with the badges deliberately: "hidden" should mean hidden
+   everywhere, not something that depends on which surface you happen to be
+   looking at.
+
+   Scoped to :root.<class> so it outranks the [data-confidence="low"] opacity
+   above, which would otherwise tie and win on source order. */
+:root.nrx-badges-hidden .nrx-badge,
+:root.nrx-badges-hidden .nrx-chip {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* A fade rather than a blink, and the visibility transition is what delays the
+   flip to hidden until the fade has finished. */
+.nrx-badge,
+.nrx-chip {
+  transition: opacity 0.12s ease, visibility 0.12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nrx-badge,
+  .nrx-chip {
+    transition: none;
+  }
 }
