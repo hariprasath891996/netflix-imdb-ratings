@@ -3,84 +3,73 @@
 Features are split by one test: **does it change whether you pick a better
 film?** That is core. Everything else is polish, however pleasant.
 
----
+`Needs` names the IMDb dataset file a feature depends on. `ratings` (8 MB) is
+already imported; `basics` (216 MB) and `episode` (52 MB) are not yet.
 
-## Status at a glance
+## Master list
 
-### Built — core
+| # | Feature | Tier | Status | Needs | Blocker / note |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | IMDb rating badge on every card, colour-coded | Core | **Built** | ratings | — |
+| 2 | Ratings from IMDb's published dataset — no server, no key, no account | Core | **Built** | ratings | — |
+| 3 | Daily refresh, conditional — a 304 costs zero bytes and skips the import | Core | **Built** | ratings | — |
+| 4 | Alias resolution — "Laapataa Ladies" → "Lost Ladies" | Core | **Built** | — | Uses IMDb's suggestion endpoint, which is public but undocumented and could change without notice |
+| 5 | Title normalisation — curly quotes, trailing "(U.S.)" / "(2011)" | Core | **Built** | — | — |
+| 6 | Adjustable colour bands, dragged on a 0–10 scale | Core | **Built** | — | — |
+| 7 | Live recolour on threshold change, with no refetch | Core | **Built** | — | — |
+| 8 | Dim what I'd skip — unrated titles never dim | Core | **Built** | — | — |
+| 9 | Correct a wrong match — candidates listed with vote counts, pin one | Core | **Built** | — | A pin needs a Netflix reload to show, because the match lives in IndexedDB rather than storage |
+| 10 | Thin-evidence marker — dashed outline under 1,000 votes | Core | **Built** | ratings | — |
+| 11 | Rating restated inside the hover preview | Core | **Built** | — | Netflix only; Prime has no verified equivalent |
+| 12 | Netflix browse rows | Core | **Built** | — | — |
+| 13 | Netflix search results | Core | **Built** | — | Needed no work — Netflix reuses the row component |
+| 14 | Netflix My List | Core | **Built** | — | — |
+| 15 | Netflix genre grids | Core | **Built** | — | — |
+| 16 | Prime Video | Core | **Built** | — | Only `primevideo.com` verified live; the `amazon.*/gp/video` patterns are unverified |
+| 17 | Per-platform badge corner — right on Netflix, left on Prime | Core | **Built** | — | Both corners measured on the live sites |
+| 18 | Modifier-click a badge to open IMDb | Good to have | **Built** | — | — |
+| 19 | Shift+B hides all badges | Good to have | **Built** | — | Resets on a hard reload; deliberate, so a hidden state never reads as broken |
+| 20 | Extension icons, generated from source | Good to have | **Built** | — | — |
+| 21 | Landing website | Good to have | **Built** | — | Pricing section is a placeholder; there is no checkout |
+| 22 | Preview harness for the badge | Good to have | **Built** | — | — |
+| 23 | Settings page — cards, real control states, AA contrast | Good to have | **Built** | — | — |
+| 24 | **Type & year disambiguation** | Core | Pending | basics | 184 of 426 homepage titles (43%) share a name with other IMDb entries. Type is available now via the preview modal's "5 Seasons"; year needs a year read from Netflix to compare against |
+| 25 | **Episode ratings / season strip** | Core | Pending | episode | None. 880k rated episodes exist; no competitor does this |
+| 26 | **Is it finished, or still running** | Core | Pending | basics | None. 76% of homepage series have ended |
+| 27 | Sort a grid by rating | Core | Pending | — | None |
+| 28 | Runtime filter — "I have 90 minutes" | Good to have | Pending | basics | Must be films-only: for a series `runtimeMinutes` is the episode length |
+| 29 | Movies-only / series-only filter | Good to have | Pending | basics | Netflix's own nav partly covers this |
+| 30 | Genre filter | Good to have | Pending | basics | None |
+| 31 | Offline alias resolution | Good to have | Pending | basics | Partial only — some Netflix labels ("My Liberation Notes") appear in neither title field. Full coverage needs `akas`, 489 MB, too large to carry |
+| 32 | Surface hidden gems — high rating, modest votes | Good to have | Pending | — | Under-seen and badly-matched look identical today; needs a rule that separates them |
+| 33 | Netflix's hidden genres | Good to have | Pending | — | Largest scope expansion on the list |
+| 34 | Best-in-row highlight | Good to have | Pending | — | None |
+| 35 | Faster first import via a pre-filtered index | Good to have | Pending | — | Works against the larger imports above |
+| 36 | Firefox port | Good to have | Pending | — | Manifest V3 with small changes; only worth it if Firefox is used |
+| 37 | Disney+ | Good to have | **Blocked** | — | `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here. Real selectors are known (`set-item`, `set-shelf-item`) but unverified |
+| 38 | Rotten Tomatoes | — | **Dropped** | — | 19% coverage on a real Indian homepage, zero for Korean and Japanese. On a US catalogue, 100% of theatrical films but **0 of 12 Netflix Originals** — OMDb carries RT for films, not series. Would also reinstate the per-user API key and daily cap |
+| 39 | Metacritic | — | **Dropped** | — | 18.3% coverage, same source, same series-shaped gap |
+| 40 | JioHotstar | — | **Dropped** | — | Homepage is daily serials, cricket and news, which IMDb barely rates; card labels are episode identifiers ("S1 E691") not titles; and a low willingness-to-pay audience |
+| 41 | HBO Max | — | **Dropped** | — | Not available in India, so unverifiable from here |
+| 42 | Scraping IMDb pages | — | **Dropped** | — | Superseded. IMDb publishes the ratings as a dataset, which is faster than any scraper, sanctioned, and cannot break on a redesign |
+| 43 | OMDb as the rating source | — | **Dropped** | — | Replaced by IMDb's dataset: 86% → 98.8% coverage, and the API key requirement disappeared |
+| 44 | Native `title` tooltip | — | **Dropped** | — | `pointer-events: none` made it unhoverable, and Netflix's autoplay outran it. Replaced by a custom tooltip, then largely superseded by the preview chip |
+| 45 | Playback speed shortcuts | — | **Dropped** | — | A competitor has it, but it has nothing to do with ratings |
 
-| Feature | Notes |
-| --- | --- |
-| IMDb rating on every card, colour-coded | The product. Green / amber / red, readable without reading numbers. |
-| Ratings from IMDb's own dataset | 1.7M titles, ~8MB, local, refreshed daily. No server, no API key, no account. |
-| Alias resolution | "Laapataa Ladies" → "Lost Ladies". Recovered 57 of 60 titles OMDb had missed. |
-| Title normalisation | Curly apostrophes flattened; a trailing "(U.S.)" or "(2011)" retried without it. |
-| Adjustable colour bands | Two draggable boundaries on a 0–10 scale. Netflix recolours as you drag. |
-| Dim what I'd skip | Titles below your bar recede. Unrated titles never dim. |
-| Correct a wrong match | Search, see candidates with vote counts, pin the right one. Pins survive "clear matches". |
-| Thin-evidence marker | An 8.9 from 74 votes gets a dashed outline. Threshold measured, not guessed. |
-| Rating inside the hover preview | Netflix replaces the card with a mini-player; the score is restated where you end up looking. |
-| Netflix: rows, search, My List, genre grids | Search needed no work — Netflix reuses the row component there. |
-| Prime Video | Verified live, 54/54 titles extracted. Badge corner flips to clear Prime's own ribbons. |
+### Standing caveat
 
-### Built — good to have
-
-| Feature | Notes |
-| --- | --- |
-| Modifier-click a badge → IMDb | Plain clicks fall through to Netflix untouched. |
-| Shift+B hides all badges | For seeing the artwork unobstructed. |
-| Icons | Generated from source by `tools/make_icons.py`, no image library needed. |
-| Landing site | `site/` — demonstrates the badge rather than describing it. |
-| Preview harness | `preview.html` — eyeball the badge without loading the extension. |
-
-### Pending — core
-
-Ordered by value. "Needs" names the IMDb dataset file a feature depends on;
-`ratings` (8 MB) is already imported.
-
-| Feature | Why it matters | Needs | Blocker |
-| --- | --- | --- | --- |
-| Type & year disambiguation | **The largest correctness problem left.** 184 of 426 titles on a real homepage (43%) share their name with other IMDb entries — three separate "Person of Interest", two "Zodiac", three "The Call". Today we pick the first same-named entry that happens to carry a rating, which among three candidates is close to a coin flip. `titleType` and `startYear` decide it properly. | `basics` | Type is available now via the preview modal's "5 Seasons". Year needs a year read from Netflix to compare against. |
-| Episode ratings / season strip | The differentiator. 880k rated episodes exist. Netflix will let you start season 5 of a show that collapsed in season 3 and never warns you. A per-season strip answers "is this still worth continuing?" — a real question with no current answer anywhere. No competitor does this. | `episode` | None. |
-| Is it finished? | 76% of the series on a real homepage have ended. Whether a show completed or was cancelled mid-story changes whether you start a five-season commitment, and nothing in Netflix's UI says. | `basics` (`endYear`) | None. |
-| Sort a grid by rating | Genre pages and My List are grids. Sorting one ranks the catalogue rather than annotating it. | — | None. |
-
-### Pending — good to have
-
-| Feature | Why it matters | Needs | Blocker |
-| --- | --- | --- | --- |
-| Runtime filter | "I have 90 minutes" — time is the real weeknight constraint, and Netflix offers no way to filter on it. Present on 94.8% of homepage titles. | `basics` | **Must apply to films only.** For a series `runtimeMinutes` is the *episode* length, so filtering series on it is meaningless. |
-| Movies-only / series-only | A homepage is 54% series, 37% films. | `basics` | Netflix's own nav partly covers this. |
-| Genre filter | Filter a row by genre without leaving for Netflix's genre pages. Genres present on ~99%. | `basics` | None. |
-| Offline alias resolution | `primaryTitle` + `originalTitle` differ on 38% of titles and already resolve "Laapataa Ladies" → "Lost Ladies" locally. Would cut the one remaining network call to near zero and reduce reliance on an undocumented endpoint. | `basics` | Partial only — "My Liberation Notes" is filed as "My Liberation Diary" and appears in neither field. Full coverage needs `akas` (489 MB), which is too large to carry. |
-| Surface hidden gems | High rating on modest votes means under-seen, not bad. The dashed badge currently reads that as a warning; it could equally be a recommendation. | — | Needs a rule that distinguishes under-seen from badly-matched, which today look identical. |
-| Netflix's hidden genres | Hundreds of unlisted category IDs. Answers "what else is there" rather than "is this good". | — | Biggest scope expansion on the list. |
-| Best-in-row highlight | Marks the strongest card in rows you'd otherwise skim past. | — | None. |
-| Faster first import | A pre-filtered index would cut the ~30s first run. | — | Works against the larger imports above. |
-| Firefox port | Manifest V3 with small changes. | — | Only worth it if Firefox is actually used. |
-| Disney+ | Third target platform. Real selectors are known (`set-item`, `set-shelf-item`) but unverified. | — | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here. |
+Nothing since v0.2.0 has been run as a loaded extension. Everything built since
+was verified by reading the code and by injecting the same logic into the live
+sites through the browser, which is not the same thing as running it.
 
 ### On import cost
 
-Adding `basics` does **not** mean a 216 MB daily download. A film's year, runtime
+Adding `basics` does not mean a 216 MB daily download. A film's year, runtime
 and genre are immutable — only new rows are ever appended — so `basics` and
-`episode` refresh monthly while `ratings` stays daily. Measured: for the 84% of
-a homepage above 5,000 votes, shifting a badge by 0.1 would take 1,843 new votes
-all landing two points off the average, so ratings barely move either. The cost
-of these features is a larger one-time install, not a recurring burden.
-
-### Dropped — and why
-
-| Feature | Reason |
-| --- | --- |
-| Rotten Tomatoes | Measured twice. 19% coverage overall on a real Indian homepage — **zero** for Korean and Japanese titles. On a US-style catalogue it reaches 100% for theatrical films but **0 of 12 Netflix Originals**, because OMDb carries RT for films and essentially not for series. A toggle that is blank on most of Netflix reads as broken. It would also reinstate the per-user API key and daily cap that the whole architecture exists to avoid. Viable only as a films-only opt-in; parked. |
-| Metacritic | 18.3% coverage, same source and the same series-shaped gap. |
-| JioHotstar | Homepage is daily serials, live cricket and news — IMDb rates almost none of it, and card labels are episode identifiers ("S1 E691") rather than titles. Low coverage and a low-willingness-to-pay audience. |
-| HBO Max | Not available in India, so it cannot be verified from here. |
-| Scraping IMDb pages | Superseded. IMDb *publishes* its ratings as a bulk dataset, which is faster than any scraper (a local read beats a network call), officially sanctioned, and cannot break when IMDb redesigns. |
-| OMDb as the rating source | Replaced by IMDb's dataset: 86% → 98.8% coverage, and the API key requirement disappeared. |
-| Native `title` tooltip | `pointer-events: none` made it unhoverable, and Netflix's autoplay preview outran it anyway. Replaced by an instant custom tooltip, then largely superseded by the preview-modal chip. |
-| Playback speed shortcuts | A competitor has it and users like it, but it has nothing to do with ratings. Out of scope. |
+`episode` refresh monthly while `ratings` stays daily. Ratings barely move
+either: for the 84% of a homepage above 5,000 votes, shifting a badge by 0.1
+would take 1,843 new votes all landing two points off the average. The cost of
+these features is a larger one-time install, not a recurring burden.
 
 ---
 
