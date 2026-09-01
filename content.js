@@ -17,6 +17,19 @@ const CARD_SELECTORS = [
   '[data-uia="progress-card"]'  // Continue Watching
 ].join(",");
 
+// Netflix's hover preview replaces the card with a mini-player, taking our
+// badge with it. This is the metadata row inside that preview ("U/A 13+ ·
+// 5 Seasons · HD"), which is where the rating belongs once you are looking at
+// the expanded state.
+const MODAL_META = '[data-uia="videoMetadata--container"]';
+
+// Below this many votes a rating is thin evidence. Measured against 430 real
+// titles: only ~3% fall under 1,000, so this flags the genuinely shaky ones
+// without dimming a quarter of the page (10,000 would flag 28%). It doubles as
+// a wrong-match signal — a famous series resolving to 90 votes means the match,
+// not the rating, is wrong.
+const LOW_VOTE_THRESHOLD = 1000;
+
 // The RAG thresholds are user-configurable (see options.html). RAG_DEFAULTS
 // comes from defaults.js, which the manifest loads before this file. These are
 // mutable because a settings change re-colours badges in place — no refetch.
@@ -67,6 +80,14 @@ function hostFor(card) {
   return card;
 }
 
+// 2,284,119 -> "2.3M". The modal has room for a vote count, and showing it
+// there is what makes the confidence signal legible without a hover.
+function shortVotes(votes) {
+  if (votes >= 1000000) return `${(votes / 1000000).toFixed(1)}M`;
+  if (votes >= 1000) return `${Math.round(votes / 1000)}K`;
+  return String(votes);
+}
+
 function tierFor(rating) {
   const value = parseFloat(rating);
   if (Number.isNaN(value)) return "unknown";
@@ -79,9 +100,9 @@ function tierFor(rating) {
 // score itself. So we keep the rating on the element and recolour in place
 // rather than re-fetching anything.
 function recolourAll() {
-  for (const badge of document.querySelectorAll(".nrx-badge")) {
-    const rating = badge.dataset.rating;
-    if (rating) badge.dataset.tier = tierFor(rating);
+  for (const element of document.querySelectorAll(".nrx-badge, .nrx-chip")) {
+    const rating = element.dataset.rating;
+    if (rating) element.dataset.tier = tierFor(rating);
   }
 }
 
@@ -147,6 +168,12 @@ function renderBadge(host, result) {
     badge.dataset.tier = tierFor(result.rating);
     badge.textContent = result.rating;
 
+    // An 8.9 from 74 votes and an 8.7 from 2.3M both badge green, which lets
+    // the badge mislead by omission. A dashed outline marks the thin ones.
+    if (result.votes && result.votes < LOW_VOTE_THRESHOLD) {
+      badge.dataset.confidence = "low";
+    }
+
     // Netflix's label and IMDb's title often differ ("Laapataa Ladies" is
     // filed as "Lost Ladies"), and the match is occasionally wrong. Naming the
     // matched title makes a bad match visible instead of silent.
@@ -165,6 +192,66 @@ function renderBadge(host, result) {
 
   host.classList.add("nrx-host");
   host.appendChild(badge);
+}
+
+// --- the hover preview ----------------------------------------------------
+// The modal is built and torn down repeatedly as the pointer moves across a
+// row, so it is treated like any other element the page adds: found by the
+// same debounced scan, and claimed once.
+function titleFromModal(meta) {
+  const modal = meta.closest('[class*="previewModal"]');
+  const image = (modal || document).querySelector("img[alt]");
+  return image && image.alt.trim() ? clean(image.alt) : null;
+}
+
+function renderModalChip(meta, result) {
+  if (meta.querySelector(".nrx-chip")) return;
+
+  const chip = document.createElement("span");
+  chip.className = "nrx-chip";
+
+  if (!result.found || !result.rating) {
+    chip.dataset.tier = "unknown";
+    chip.textContent = "No IMDb rating";
+  } else {
+    chip.dataset.rating = result.rating;
+    chip.dataset.tier = tierFor(result.rating);
+    if (result.votes && result.votes < LOW_VOTE_THRESHOLD) chip.dataset.confidence = "low";
+
+    // Space is not scarce here, so the vote count goes in plainly rather than
+    // being hidden behind a hover that Netflix's autoplay would win anyway.
+    chip.textContent = result.votes
+      ? `IMDb ${result.rating} · ${shortVotes(result.votes)} votes`
+      : `IMDb ${result.rating}`;
+
+    if (result.exact === false && result.label) {
+      const alias = document.createElement("span");
+      alias.className = "nrx-chip-alias";
+      alias.textContent = `· ${result.label}`;
+      chip.appendChild(alias);
+    }
+  }
+
+  meta.insertBefore(chip, meta.firstChild);
+}
+
+async function processModal(meta) {
+  if (meta.dataset.nrxDone) return;
+  meta.dataset.nrxDone = "1";
+
+  const title = titleFromModal(meta);
+  if (!title) { delete meta.dataset.nrxDone; return; }
+
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage({ type: "lookup", title });
+  } catch (e) {
+    return;
+  }
+  if (!result) return;
+  if (result.error) { delete meta.dataset.nrxDone; return; }
+
+  renderModalChip(meta, result);
 }
 
 // --- the lookup pipeline --------------------------------------------------
@@ -226,6 +313,10 @@ function scan(root = document) {
     card.dataset.nrxSeen = "1";
     visibility.observe(card);
   }
+
+  // A preview modal only exists while it is being looked at, so there is
+  // nothing to defer — resolve it straight away.
+  for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
 }
 
 // Netflix adds cards in bursts; debounce so a burst is one scan, not fifty.

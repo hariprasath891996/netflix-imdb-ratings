@@ -42,6 +42,13 @@
     }
     .scrim { position: absolute; inset: 0; z-index: 1;
       background: linear-gradient(to top, rgba(0,0,0,.75), transparent 55%); }
+    .metarow {
+      margin: 0 32px 30px; padding: 10px 12px;
+      background: #202020; border-radius: 4px;
+      display: flex; align-items: center; gap: 8px;
+      color: #d2d2d2; font-size: 13px;
+    }
+    .metarow .mr-dim { color: #8c8c8c; border: 1px solid #6b6b6b; padding: 0 5px; border-radius: 3px; font-size: 11px; }
     .legend { margin: 8px 32px 0; display: flex; gap: 18px; flex-wrap: wrap;
       font-size: 12.5px; color: #a3a3a3; align-items: center; }
     .legend .nrx-badge { position: static; }
@@ -58,6 +65,9 @@
   <h2>Because you watched Dune</h2>
   <div class="row" id="row-b"></div>
 
+  <h2>Inside Netflix's hover preview</h2>
+  <div class="metarow" id="metarow"></div>
+
   <div class="legend">
     <span><span class="nrx-badge" data-tier="high">8.4</span> 7.5 and above</span>
     <span><span class="nrx-badge" data-tier="mid">6.9</span> 6.5 – 7.4</span>
@@ -66,6 +76,13 @@
   </div>
 
   <script>
+    function shortVotes(v) {
+      if (v >= 1000000) return (v / 1000000).toFixed(1) + "M";
+      if (v >= 1000) return Math.round(v / 1000) + "K";
+      return String(v);
+    }
+    const LOW_VOTE_THRESHOLD = 1000;
+
     // Stand-in for what background.js returns from the IMDb dataset.
     const rows = {
       "row-a": [
@@ -76,6 +93,7 @@
         { name: "Nimona",               rating: "7.5", votes: 78221,   year: 2023, art: "#1f3a3a,#0c1919" }
       ],
       "row-b": [
+        { name: "Four Hands, Two Sonatas", rating: "8.9", votes: 74, year: 2025, art: "#3a2a4a,#150f1c" },
         { name: "Laapataa Ladies",      rating: "8.3", votes: 61964, year: 2023, label: "Lost Ladies", art: "#4a2a1c,#1a0f0a" },
         { name: "My Liberation Notes",  rating: "8.2", votes: 7584,  year: 2022, label: "My Liberation Diary", art: "#1c3a2a,#0b1a12" },
         { name: "The Midnight Sky",     rating: "5.6", votes: 92104, year: 2020, art: "#2a3040,#10131b" },
@@ -149,6 +167,7 @@
         } else {
           badge.dataset.tip = "No IMDb rating found";
         }
+        if (item.votes && item.votes < LOW_VOTE_THRESHOLD) badge.dataset.confidence = "low";
         badge.addEventListener("mouseenter", () => showTip(badge));
         badge.addEventListener("mouseleave", hideTip);
 
@@ -156,6 +175,28 @@
         row.appendChild(card);
       }
     }
+    // The metadata row Netflix builds inside its hover preview, with our chip
+    // sitting in it the way the real one does.
+    (function buildMetaRow() {
+      const row = document.getElementById("metarow");
+      const chip = document.createElement("span");
+      chip.className = "nrx-chip";
+      chip.dataset.tier = "high";
+      chip.dataset.rating = "8.3";
+      chip.textContent = "IMDb 8.3 · 62K votes";
+      const alias = document.createElement("span");
+      alias.className = "nrx-chip-alias";
+      alias.textContent = "· Lost Ladies";
+      chip.appendChild(alias);
+
+      row.appendChild(chip);
+      for (const bit of ["U/A 13+", "2023", "HD"]) {
+        const s = document.createElement("span");
+        s.className = "mr-dim";
+        s.textContent = bit;
+        row.appendChild(s);
+      }
+    })();
   </script>
 </body>
 </html>

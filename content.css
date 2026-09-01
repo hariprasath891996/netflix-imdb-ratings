@@ -28,7 +28,8 @@
   font-variant-numeric: tabular-nums;
 
   background: rgba(0, 0, 0, 0.82);
-  box-shadow: inset 0 0 0 1px currentColor;
+  border: 1px solid currentColor;
+  box-sizing: border-box;
 
   /* The badge must take pointer events or it can never be hovered — the
      tooltip below depends on it. It sits inside the card's own anchor, so a
@@ -70,9 +71,53 @@
   color: #e5a00d;
 }
 
+/* A dashed outline means the rating rests on very few votes — an 8.9 from 74
+   people should not look like an 8.7 from 2.3 million. In practice it also
+   catches bad matches: a famous series showing 90 votes has resolved to the
+   wrong entry, and the dash is the tell. */
+.nrx-badge[data-confidence="low"] {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
 /* Colour is the whole point: you should be able to scan a row without
    reading a single number. */
 .nrx-badge[data-tier="high"]    { color: #46d369; }  /* worth it */
 .nrx-badge[data-tier="mid"]     { color: #e5a00d; }  /* maybe */
 .nrx-badge[data-tier="low"]     { color: #e87c78; }  /* skip */
 .nrx-badge[data-tier="unknown"] { color: #8c8c8c; }  /* no rating found */
+
+
+/* --- the rating inside Netflix's hover preview ---------------------------
+   Netflix replaces the card with a mini-player on hover, taking the badge with
+   it, so the rating is restated in the preview's own metadata row alongside
+   the maturity rating and season count. Styled to sit in that row as though it
+   belonged there, because visually it does. */
+.nrx-chip {
+  display: inline-flex;
+  align-items: baseline;
+  margin-right: 8px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.nrx-chip[data-confidence="low"] { border-style: dashed; }
+
+.nrx-chip[data-tier="high"]    { color: #46d369; }
+.nrx-chip[data-tier="mid"]     { color: #e5a00d; }
+.nrx-chip[data-tier="low"]     { color: #e87c78; }
+.nrx-chip[data-tier="unknown"] { color: #8c8c8c; }
+
+/* The IMDb title, when it differs from the name Netflix shows. Muted so it
+   reads as a footnote rather than competing with the score. */
+.nrx-chip-alias {
+  margin-left: 5px;
+  color: #9a9a9a;
+  font-weight: 400;
+}
