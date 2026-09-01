@@ -1,7 +1,11 @@
 /* The badge sits on top of Netflix's own artwork, so everything here is
    defensive: high z-index, no pointer events (never steal a click from
    Netflix's hover preview), and a dark plate so it stays readable over
-   whatever the poster happens to look like. */
+   whatever the poster happens to look like.
+
+   Top-RIGHT is deliberate. Netflix puts its TOP 10 ribbon in the top-left
+   corner and its "New Season" / "Recently added" tags in the bottom-left, so
+   the right side is the only corner that stays clear. */
 
 .nrx-host {
   position: relative;
@@ -10,7 +14,7 @@
 .nrx-badge {
   position: absolute;
   top: 6px;
-  left: 6px;
+  right: 6px;
   z-index: 5;
 
   padding: 2px 7px;

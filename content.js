@@ -7,10 +7,14 @@
 //   - an IntersectionObserver holds the lookup until a card is actually on
 //     screen, so scrolling past three rows doesn't spend quota on thirty.
 
+// Netflix styles itself with CSS-in-JS, so its class names look like
+// "default-ltr-iqcdef-cache-19c3xp8" and change on every deploy — useless to
+// select on. `data-uia` attributes are Netflix's own test-automation hooks:
+// semantic, and stable because their QA depends on them. Always prefer those.
 const CARD_SELECTORS = [
-  ".title-card",
-  ".slider-item",
-  ".title-card-container"
+  '[data-uia="standard-card"]', // ordinary row cards
+  '[data-uia="ranked-card"]',   // the Top 10 rows
+  '[data-uia="progress-card"]'  // Continue Watching
 ].join(",");
 
 const TIER_HIGH = 7.5;
@@ -19,25 +23,21 @@ const TIER_MID = 6.5;
 let warnedAboutKey = false;
 
 // --- reading a title off a card ------------------------------------------
-// Netflix does not hand us a clean data attribute, and the class names change
-// every few months. So: try the most reliable sources in order, and give up
-// quietly rather than badging the wrong film.
+// A card is an anchor carrying the title in its own aria-label:
+//   <a href="/browse?jbv=70155590" aria-label="The Mentalist" data-uia="standard-card">
+// Note the label is on the card element itself, not a descendant — so check
+// the element's own attribute before searching inside it. The <img> alt is
+// empty on current Netflix, but it is kept as a fallback in case that changes.
 function titleFromCard(card) {
-  const fallback = card.querySelector(".fallback-text");
-  if (fallback && fallback.textContent.trim()) {
-    return clean(fallback.textContent);
-  }
-
-  const img = card.querySelector("img[alt]");
-  if (img && img.alt.trim()) {
-    return clean(img.alt);
-  }
+  const own = card.getAttribute("aria-label");
+  if (own && own.trim()) return clean(own);
 
   const labelled = card.querySelector("[aria-label]");
-  if (labelled) {
-    const label = labelled.getAttribute("aria-label");
-    if (label && label.trim()) return clean(label);
-  }
+  const inner = labelled && labelled.getAttribute("aria-label");
+  if (inner && inner.trim()) return clean(inner);
+
+  const img = card.querySelector("img[alt]");
+  if (img && img.alt.trim()) return clean(img.alt);
 
   return null;
 }
@@ -50,10 +50,11 @@ function clean(raw) {
     .trim();
 }
 
-// The badge is positioned absolutely, so it needs a positioned ancestor.
-// Netflix's boxart container usually already is one, but not always.
+// The badge is absolutely positioned, so it needs a positioned ancestor. The
+// card anchor itself is the right box; .nrx-host in the stylesheet gives it
+// position:relative when it doesn't already have one.
 function hostFor(card) {
-  return card.querySelector(".boxart-container, .boxart-size-16x9") || card;
+  return card;
 }
 
 function tierFor(rating) {
