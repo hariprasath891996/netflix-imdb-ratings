@@ -37,18 +37,39 @@ async function writeCache(title, value) {
   });
 }
 
+// Netflix disambiguates titles with suffixes the work itself doesn't carry:
+// "The Office (U.S.)", "Hunter X Hunter (2011)", "Pushpa 2 (Reloaded Version)".
+// Stripping these unconditionally would break any title that legitimately ends
+// in brackets, so this is only ever used as a second attempt after a miss.
+function withoutTrailingParenthetical(title) {
+  return title.replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
+async function askOmdb(apiKey, title) {
+  const url = new URL(OMDB_URL);
+  url.searchParams.set("apikey", apiKey);
+  url.searchParams.set("t", title);
+  const response = await fetch(url);
+  return response.json();
+}
+
 async function fetchRating(title) {
   const apiKey = await getApiKey();
   if (!apiKey) return { error: "no-key" };
 
-  const url = new URL(OMDB_URL);
-  url.searchParams.set("apikey", apiKey);
-  url.searchParams.set("t", title);
-
   let data;
   try {
-    const response = await fetch(url);
-    data = await response.json();
+    data = await askOmdb(apiKey, title);
+
+    // Retry as a fallback rather than normalising up front, so a title that
+    // really does end in brackets still gets its exact match tried first.
+    if (data.Response === "False" && !/api key/i.test(data.Error || "")) {
+      const stripped = withoutTrailingParenthetical(title);
+      if (stripped && stripped !== title) {
+        const retry = await askOmdb(apiKey, stripped);
+        if (retry.Response !== "False") data = retry;
+      }
+    }
   } catch (e) {
     // Network blips are temporary — never cache them, or one flaky moment
     // poisons the title for 30 days.

@@ -44,8 +44,15 @@ function titleFromCard(card) {
   return null;
 }
 
+// Netflix labels use typographic punctuation — curly apostrophes, en dashes —
+// where catalogues index the plain ASCII forms. "Don't Come Home" with a U+2019
+// apostrophe misses; the same title with U+0027 resolves fine.
 function clean(raw) {
   return raw
+    .normalize("NFKC")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2010-\u2015]/g, "-")
     .replace(/\s+/g, " ")
     .replace(/^watch\s+/i, "")
     .replace(/\s+(now|on netflix)$/i, "")

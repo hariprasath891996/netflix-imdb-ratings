@@ -65,6 +65,12 @@ Worth being upfront about these:
 - **Titles are matched by name only**, with no year, because Netflix cards
   don't display one. Remakes and common titles can therefore match the wrong
   film. "Clear cache" in the settings forces a fresh lookup.
+- **Coverage is about 87%** on a real Indian Netflix homepage (measured over
+  430 titles). What's missing is mostly unreleased or promotional entries that
+  have no rating anywhere, plus Korean, Tamil and Telugu titles where OMDb's
+  index is thin. Netflix's label is also normalised before lookup — curly
+  apostrophes flattened, and a trailing "(U.S.)" or "(2011)" retried without
+  it, which alone recovered five titles.
 - **1,000 lookups a day** on OMDb's free tier. The 30-day cache means normal
   browsing stays well under it, but a first run on a fresh install eats a few
   hundred.
