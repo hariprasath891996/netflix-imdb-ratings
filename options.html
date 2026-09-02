@@ -542,6 +542,20 @@
       </div>
     </section>
 
+    <section class="card" aria-labelledby="h-diag">
+      <h2 id="h-diag">Why isn't this showing?</h2>
+      <p class="hint">Nearly everything here fails quietly on purpose — a wrong
+        badge is worse than no badge. This says out loud what the extension
+        found for a title, and what it decided to draw.</p>
+      <label class="sr-only" for="diagTitle">Title to diagnose</label>
+      <input id="diagTitle" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Title as the card spells it, e.g. Suits">
+      <div class="row">
+        <button id="diagRun" type="button" class="btn primary">Diagnose</button>
+      </div>
+      <div class="diag" id="diagOut" hidden></div>
+    </section>
+
     <section class="card" aria-labelledby="h-match">
       <h2 id="h-match">Fix a wrong match</h2>
       <p class="hint" id="matchHint">Some titles land on the wrong IMDb entry — a sequel matched to

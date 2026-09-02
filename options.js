@@ -891,3 +891,118 @@ matchReset.addEventListener("click", async () => {
   if (title === searchedTitle) markPinned(null);
   setMatchStatus(`Cleared. “${title}” will resolve again on its own.`, "ok");
 });
+
+// --- why isn't this showing? ----------------------------------------------
+// Every feature here declines silently when it lacks the data to be right: a
+// missing badge, an absent season strip and an undimmed card all look like
+// nothing happening. That is the correct behaviour and a terrible way to
+// debug, so this asks the worker the same questions the content script asks
+// and reports what came back, including the decisions it would have made.
+
+const diagTitle = document.getElementById("diagTitle");
+const diagOut = document.getElementById("diagOut");
+
+const SEASON_SPREAD_MIN = 1.0; // mirrors content.js; see its comment for why
+
+function diagLine(kind, label, detail) {
+  const mark = kind === "ok" ? "✓" : kind === "no" ? "✕" : "·";
+  const div = document.createElement("div");
+  div.className = "diag-line";
+  div.dataset.k = kind;
+  div.innerHTML = `<span class="diag-mark">${mark}</span>
+    <span><b>${label}</b>${detail ? ` — ${detail}` : ""}</span>`;
+  return div;
+}
+
+async function runDiagnosis() {
+  const title = diagTitle.value.trim();
+  if (!title) { say("Type a title first.", "error"); diagTitle.focus(); return; }
+
+  diagOut.hidden = false;
+  diagOut.replaceChildren(diagLine("info", "Asking…", title));
+
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage({ type: "lookup", title });
+  } catch {
+    diagOut.replaceChildren(diagLine("no", "The extension's worker didn't answer",
+      "Reload the extension and try again."));
+    return;
+  }
+
+  const lines = [];
+
+  if (!result || result.error) {
+    const why = result?.error === "importing"
+      ? "the ratings dataset is still importing"
+      : result?.error === "network"
+        ? "IMDb's title lookup could not be reached"
+        : "no answer";
+    lines.push(diagLine("no", "Lookup failed", why));
+    diagOut.replaceChildren(...lines);
+    return;
+  }
+
+  if (!result.found) {
+    lines.push(diagLine("no", "No IMDb match", "nothing on IMDb matched that name — check the spelling against the card"));
+    diagOut.replaceChildren(...lines);
+    return;
+  }
+
+  lines.push(diagLine("ok", "Matched", `${result.label || title}${result.year ? ` (${result.year})` : ""}${result.exact === false ? " — closest match, not exact" : ""}`));
+  lines.push(result.rating
+    ? diagLine("ok", "Rating", `${result.rating} from ${(result.votes || 0).toLocaleString()} votes → the badge should show ${result.rating}`)
+    : diagLine("no", "No rating", "on IMDb but unrated, so the badge shows a dash"));
+
+  // The metadata that gates the season strip, run status and the filters.
+  lines.push(result.titleType
+    ? diagLine("ok", "Type", result.titleType)
+    : diagLine("no", "No type", "the metadata file has no row for this — season strip, kind filter and finished/running are all skipped"));
+
+  const isSeries = typeof result.titleType === "string"
+    && result.titleType.toLowerCase().includes("series");
+
+  if (result.titleType && !isSeries) {
+    lines.push(diagLine("info", "Not a series", "season strips only apply to series"));
+  }
+
+  if (isSeries) {
+    lines.push(result.isEnded
+      ? diagLine("ok", "Finished", `ended ${result.endYear}`)
+      : diagLine("info", "Still running", "no end year recorded"));
+
+    if (!result.imdbID) {
+      lines.push(diagLine("no", "No IMDb id", "the season strip needs one and cannot be requested"));
+    } else {
+      let seasons;
+      try {
+        seasons = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
+      } catch {
+        seasons = null;
+      }
+      const list = Array.isArray(seasons?.seasons) ? seasons.seasons : [];
+
+      if (!list.length) {
+        lines.push(diagLine("no", "No episode data",
+          seasons && seasons.ready === false
+            ? "the episodes file hasn't imported yet"
+            : "IMDb has no rated episodes filed under this series"));
+      } else {
+        const avgs = list.map((s) => Number(s.average)).filter(Number.isFinite);
+        const spread = avgs.length > 1 ? Math.max(...avgs) - Math.min(...avgs) : 0;
+        lines.push(diagLine("ok", "Seasons", `${list.length}, rated ${Math.min(...avgs).toFixed(1)}–${Math.max(...avgs).toFixed(1)}`));
+        lines.push(spread >= SEASON_SPREAD_MIN
+          ? diagLine("ok", "Season strip", `spread ${spread.toFixed(1)} — the strip should appear on hover`)
+          : diagLine("info", "Season strip hidden on purpose",
+              `spread ${spread.toFixed(1)} is under ${SEASON_SPREAD_MIN.toFixed(1)}, so the seasons are the same show and nothing is drawn`));
+      }
+    }
+  }
+
+  diagOut.replaceChildren(...lines);
+}
+
+document.getElementById("diagRun").addEventListener("click", runDiagnosis);
+diagTitle.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runDiagnosis(); }
+});
