@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "IMDb Ratings for Netflix",
+  "version": "0.3.0",
+  "description": "Shows IMDb ratings on Netflix title cards, colour-coded, with no API key required.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "netflix-imdb-ratings@hariprasath891996.github.io",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://datasets.imdbws.com/*",
+    "https://v2.sg.media-imdb.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.netflix.com/*",
+        "https://www.primevideo.com/*",
+        "https://www.amazon.in/gp/video/*",
+        "https://www.amazon.com/gp/video/*",
+        "https://www.disneyplus.com/*"
+      ],
+      "js": [
+        "defaults.js",
+        "content.js",
+        "sort.js",
+        "genres.js"
+      ],
+      "css": [
+        "content.css",
+        "sort.css",
+        "genres.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "IMDb Ratings for Netflix",
+    "default_popup": "options.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -43,7 +43,7 @@ const DB_NAME = "nrx";
 // gains it without re-downloading anything (see refreshStaleDatasets).
 const DB_VERSION = 3;
 const STORE_RATINGS = "ratings";   // tconst -> { r, v }
-const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, via?, pinned? }
+const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, via?, pinned?, hintYear?, yearMatch?, yearDecided? }
 const STORE_BASICS = "basics";     // tconst -> compact metadata, see importBasics()
 const STORE_TITLE_INDEX = "titleIndex"; // bucket number -> Map(name -> packed id), see buildTitleIndex()
 const STORE_META = "meta";         // bookkeeping, one record per dataset
@@ -681,9 +681,14 @@ async function datasetStatus() {
 }
 
 async function fullStatus() {
-  const [ratings, basics, episode] = await Promise.all([
-    metaFor("ratings"), metaFor("basics"), metaFor("episode")
-  ]);
+  // Derived from DATASETS rather than listed by hand: a removed dataset once
+  // survived in five separate literal lists, and startImport threw on it at
+  // every startup behind a swallowed catch.
+  const names = Object.keys(DATASETS);
+  const metas = Object.fromEntries(
+    await Promise.all(names.map(async (name) => [name, await metaFor(name)]))
+  );
+  const ratings = metas.ratings;
   const stored = await chrome.storage.local.get("datasetProgress");
   const progress = stored.datasetProgress || {};
   const index = await titleIndexMeta();
@@ -699,9 +704,7 @@ async function fullStatus() {
     // Unchanged, and still about ratings: the settings page reads these flat.
     ...ratings,
     datasets: {
-      ratings: describe("ratings", ratings),
-      basics: describe("basics", basics),
-      episode: describe("episode", episode)
+      ...Object.fromEntries(names.map((name) => [name, describe(name, metas[name])]))
     },
     // Additive, and outside `datasets` because it is not one: it has no
     // download, no freshness window and nothing to trigger by hand.
@@ -727,7 +730,7 @@ let lastFreshnessCheck = 0;
 async function refreshStaleDatasets() {
   if (Date.now() - lastFreshnessCheck < FRESHNESS_CHECK_MS) return;
   lastFreshnessCheck = Date.now();
-  for (const name of ["ratings", "basics", "episode"]) {
+  for (const name of Object.keys(DATASETS)) {
     const meta = await metaFor(name);
     if (!meta.ready || meta.stale) startImport(name).catch(() => {});
   }
@@ -764,6 +767,103 @@ function kindOf(type) {
   return (type && KIND_BY_TYPE[type]) || null;
 }
 
+// --- the year hint ---------------------------------------------------------
+// 43% of the titles on a real Netflix homepage share their name with something
+// else on IMDb, and the tie-breaks we had — the caller's kind, then whichever
+// candidate is rated, then votes — cannot tell three rated "Person of
+// Interest"s apart. A year can.
+//
+// It is optional and it always will be: Netflix prints one on a title's own
+// detail page ("2019 9 Seasons HD") and prints none on the browse homepage
+// ("U/A 13+ 5 Seasons HD"), so most lookups arrive without one. Everything
+// below is therefore built to be inert when the year is missing or junk — the
+// no-year path has to stay exactly as good as it was, because it is still the
+// common path.
+const YEAR_MIN = 1870; // older than anything IMDb lists
+
+function yearOf(value) {
+  const year = Number(value);
+  if (!Number.isInteger(year)) return null;
+  // Netflix lists titles a year or two before release, so the ceiling is not
+  // "now". Anything outside the window is a parse artefact, not a year.
+  return year >= YEAR_MIN && year <= new Date().getFullYear() + 5 ? year : null;
+}
+
+// How far a candidate may sit behind or ahead of the year the page showed and
+// still count as near, then as loose — [behind, ahead], in years.
+//
+// The two profiles exist because the year means different things for the two
+// kinds. A film has one release year and IMDb and Netflix mostly agree on it,
+// so a film three years out is probably a different film: narrow bands and a
+// penalty that sinks it below a candidate whose year we don't know at all.
+// A series has no single year — Netflix shows the season it is promoting while
+// IMDb records the premiere, which is what "2019 9 Seasons" is: nine seasons
+// means a start well before 2019. So a series is allowed to sit a decade and a
+// half behind the page's year and still read as agreement, and a series that
+// misses is only weakly penalised.
+//
+// The asymmetry within a profile is the same argument in miniature: a title
+// cannot be listed years before it exists, so a candidate ahead of the page's
+// year is the more suspicious direction. It is not impossible — festival runs
+// and regional releases put IMDb a year ahead — hence one or two years of slack
+// rather than none.
+const YEAR_TOLERANCE = {
+  movie: { near: [1, 1], loose: [3, 2], far: -2 },
+  series: { near: [4, 1], loose: [15, 3], far: -1 }
+};
+
+// Higher is better. 0 means "no evidence either way" and is deliberately what
+// an unknown year on either side scores, so a candidate we know nothing about
+// still beats one that is provably twenty years off.
+function yearScore(candidateYear, hintYear, kind) {
+  const candidate = yearOf(candidateYear);
+  if (candidate === null || hintYear === null) return 0;
+
+  const drift = hintYear - candidate; // positive: the candidate is the older one
+  if (drift === 0) return 3;
+
+  // An unclassifiable candidate gets the lenient profile: the point of these
+  // numbers is to break ties, never to talk us out of the only answer.
+  const tolerance = YEAR_TOLERANCE[kind] || YEAR_TOLERANCE.series;
+  const direction = drift > 0 ? 0 : 1;
+  const distance = Math.abs(drift);
+  if (distance <= tolerance.near[direction]) return 2;
+  if (distance <= tolerance.loose[direction]) return 1;
+  return tolerance.far;
+}
+
+// Written into the resolved record rather than the raw number, because what a
+// later diagnostic wants to ask is "did the year agree", not "what did the
+// arithmetic say".
+function yearMatchOf(score) {
+  if (score >= 3) return "exact";
+  if (score === 2) return "near";
+  if (score === 1) return "loose";
+  return score < 0 ? "far" : "unknown";
+}
+
+// The ranking both resolution paths share, compared left to right: the year
+// band first, then whether the candidate is rated at all, then whatever each
+// path already used to break a tie (votes locally, the endpoint's own order
+// over the network).
+//
+// The year sits above "is it rated" on purpose, and it is the same order of
+// argument the exactness filter below already makes: evidence about *which
+// title this is* outranks evidence about how good an answer it would make.
+// Picking the rated wrong film over the unrated right one is how you get a
+// confidently wrong badge, which is worse than an honest "no rating". With no
+// year in play every score is 0 and this collapses to exactly the two-field
+// comparison each path did before.
+function betterCandidate(a, b) {
+  if (a.score !== b.score) return a.score > b.score;
+  if (a.rated !== b.rated) return a.rated > b.rated;
+  return a.tie > b.tie;
+}
+
+function bestCandidate(scored) {
+  return scored.reduce((a, b) => (betterCandidate(b, a) ? b : a));
+}
+
 async function suggest(title) {
   const url = SUGGEST_BASE + encodeURIComponent(title.toLowerCase()) + ".json";
   const response = await fetch(url);
@@ -777,14 +877,39 @@ async function suggest(title) {
 // Seasons" is telling us this is a series, and a cached film of the same name
 // is then known to be wrong. Checking that costs a local read, never a call,
 // and a pin is never second-guessed.
-async function conflictsWithHint(record, hint) {
-  if (!hint?.kind || !record?.tconst || record.pinned) return false;
-  let kind = kindOf(record.qid);
-  if (!kind) {
-    const basics = await idbGetSafe(STORE_BASICS, record.tconst);
-    kind = kindOf(basics?.t);
+//
+// A year contradicts a record the same way, with one extra guard: only a far
+// miss counts. A near miss is the normal state of affairs (see YEAR_TOLERANCE)
+// and re-resolving on one would throw away good records for nothing.
+//
+// Returns which of the two disagreed, because the two are answered differently
+// further down.
+async function hintConflict(record, hint) {
+  if (!record?.tconst || record.pinned) return null;
+
+  let basics; // read at most once even when both tests want it
+  const readBasics = async () => {
+    if (basics === undefined) basics = await idbGetSafe(STORE_BASICS, record.tconst);
+    return basics;
+  };
+
+  if (hint?.kind) {
+    let kind = kindOf(record.qid);
+    if (!kind) kind = kindOf((await readBasics())?.t);
+    if (kind && kind !== hint.kind) return "kind";
   }
-  return !!kind && kind !== hint.kind;
+
+  const year = yearOf(hint?.year);
+  // A record already resolved under this exact year has had its second opinion
+  // and this is the best answer there was; asking again would spend the same
+  // suggestion call on every lookup of a title whose year simply disagrees.
+  if (year === null || record.hintYear === year) return null;
+
+  const recordYear = yearOf(record.year) ?? yearOf((await readBasics())?.s);
+  if (recordYear === null) return null;
+
+  const kind = kindOf(record.qid) || kindOf((await readBasics())?.t);
+  return yearScore(recordYear, year, kind) < 0 ? "year" : null;
 }
 
 // The free half of resolution: the name index built from basics (see
@@ -795,14 +920,15 @@ async function conflictsWithHint(record, hint) {
 //
 // The preference order is deliberately the same one the suggestion path uses
 // below, so a title resolved locally and the same title resolved over the
-// network land on the same id: the caller's hint first, then a candidate that
-// is actually rated, then votes. Exactness needs no step here — every
-// candidate matched the name exactly or it would not be under this key.
+// network land on the same id: the caller's hint first, then the year band,
+// then a candidate that is actually rated, then votes. Exactness needs no step
+// here — every candidate matched the name exactly or it would not be under this
+// key.
 //
-// requireHintKind is for the one caller that already has an answer and is only
-// here because a hint contradicted it: settling for a candidate of the wrong
-// kind would rewrite the record with the same disagreement.
-async function resolveLocally(key, hint, requireHintKind) {
+// conflict is for the one caller that already has an answer and is only here
+// because a hint contradicted it: settling for a candidate that disagrees the
+// same way would rewrite the record with the same disagreement.
+async function resolveLocally(key, hint, conflict) {
   const bucket = await titleIndexBucket(key);
   const entry = bucket ? bucket.get(key) : undefined;
   if (entry === undefined) return null;
@@ -812,22 +938,43 @@ async function resolveLocally(key, hint, requireHintKind) {
   if (hint?.kind) {
     const sameKind = pool.filter((packed) => candidateKind(packed) === hint.kind);
     if (sameKind.length) pool = sameKind;
-    else if (requireHintKind) return null;
-  } else if (requireHintKind) {
+    else if (conflict) return null;
+  } else if (conflict === "kind") {
     return null;
   }
 
-  // Every row in basics was filtered against the ratings index on the way in,
-  // so a candidate without a rating means the two stores have drifted apart -
-  // rare, and handled by leaving it at the back rather than by trusting it.
+  const year = yearOf(hint?.year);
+
+  // One candidate is not ranked at all. The name matched exactly and nothing
+  // else claims it, so there is nothing for a year to choose between — and a
+  // year that disagrees is not grounds for refusing the only answer there is.
   let pick = pool[0];
+  let moved = false;
   if (pool.length > 1) {
-    let most = -1;
+    const scored = [];
     for (const packed of pool) {
-      const rating = await idbGetSafe(STORE_RATINGS, idString(candidateId(packed)));
+      const tconst = idString(candidateId(packed));
+      const rating = await idbGetSafe(STORE_RATINGS, tconst);
       const votes = Number(rating?.v);
-      if (Number.isFinite(votes) && votes > most) { most = votes; pick = packed; }
+      // The second read is only spent on a name that actually collides while a
+      // year is in hand — the same shape of cost the votes read already is, and
+      // the collision is exactly the case the year exists to settle.
+      const basics = year === null ? null : await idbGetSafe(STORE_BASICS, tconst);
+      scored.push({
+        packed,
+        score: yearScore(basics?.s, year, candidateKind(packed)),
+        // Every row in basics was filtered against the ratings index on the way
+        // in, so a candidate without a rating means the two stores have drifted
+        // apart - rare, and handled by leaving it at the back rather than by
+        // trusting it.
+        rated: Number.isFinite(votes) ? 1 : 0,
+        tie: Number.isFinite(votes) ? votes : -1
+      });
     }
+    pick = bestCandidate(scored).packed;
+    // The same list with the year taken back out, so the record can say whether
+    // the year moved the answer or merely agreed with the one already there.
+    if (year !== null) moved = bestCandidate(scored.map((c) => ({ ...c, score: 0 }))).packed !== pick;
   }
 
   const tconst = idString(candidateId(pick));
@@ -836,7 +983,12 @@ async function resolveLocally(key, hint, requireHintKind) {
   // projected from, and a record with no label is worse than a call.
   if (!basics) return null;
 
-  return {
+  const score = yearScore(basics.s, year, candidateKind(pick));
+  // Sent back here by a year the cached record contradicted: a candidate whose
+  // year is contradicted the same way is no answer, so let the endpoint try.
+  if (conflict === "year" && score < 0) return null;
+
+  const resolved = {
     tconst,
     label: basics.p ?? null,
     year: basics.s ?? null,
@@ -844,6 +996,14 @@ async function resolveLocally(key, hint, requireHintKind) {
     qid: basics.t ?? null,
     via: "local"
   };
+  // Additive, and only when there was a year: what it was, how well the chosen
+  // title matched it, and whether it changed the answer.
+  if (year !== null) {
+    resolved.hintYear = year;
+    resolved.yearMatch = yearMatchOf(score);
+    if (moved) resolved.yearDecided = true;
+  }
+  return resolved;
 }
 
 // Choosing among suggestions is where accuracy is won or lost.
@@ -857,23 +1017,24 @@ async function resolveLocally(key, hint, requireHintKind) {
 // Exactness still comes first: a rated film with the wrong name is a worse
 // answer than an unrated one with the right name. Then the caller's hint, if
 // it gave one, because a page that says "5 Seasons" has settled the question
-// of whether the same-named film is the right answer. Only inside the
-// surviving group does a rating break the tie. Matches are still sometimes
-// wrong, so the matched title and year travel back and are shown in the badge
-// tooltip.
+// of whether the same-named film is the right answer. Then its year, which is
+// the only thing that can separate three same-named entries that are all rated
+// and all of the right kind. Only inside the surviving group does a rating
+// break the tie. Matches are still sometimes wrong, so the matched title and
+// year travel back and are shown in the badge tooltip.
 async function resolveTitle(title, hint) {
   const key = normaliseKey(title);
   // A pinned record is a cache hit like any other, so a manual correction
   // always wins here without needing a separate check - the auto-resolve path
   // below never runs for a title someone has already fixed.
   const cached = await idbGet(STORE_TITLES, key);
-  const conflicted = cached ? await conflictsWithHint(cached, hint) : false;
-  if (cached?.tconst && !conflicted) return cached;
+  const conflict = cached ? await hintConflict(cached, hint) : null;
+  if (cached?.tconst && !conflict) return cached;
 
   // Reached with no record, with one a hint contradicts, or with a cached miss
   // - and a miss cached before the index existed is worth re-asking locally,
   // because the answer is now free.
-  const local = await resolveLocally(key, hint, conflicted);
+  const local = await resolveLocally(key, hint, conflict);
   if (local) {
     await idbSet(STORE_TITLES, key, local);
     return local;
@@ -881,7 +1042,7 @@ async function resolveTitle(title, hint) {
 
   // A miss the endpoint already refused to answer stays refused: the local
   // index having nothing to add is no reason to spend the call again.
-  if (cached && !conflicted) return cached;
+  if (cached && !conflict) return cached;
 
   let hits = [];
   try {
@@ -896,7 +1057,17 @@ async function resolveTitle(title, hint) {
   if (!candidates.length) {
     // Only reachable with a cached record when a hint sent us back for a second
     // opinion; an empty answer is no reason to throw away the first one.
-    if (cached) return cached;
+    if (cached) {
+      // It is a reason to note that the year has now been asked about, though.
+      // Without this the disagreement is permanent and every future lookup of
+      // the title spends the same call to be told nothing again.
+      if (conflict === "year") {
+        const asked = { ...cached, hintYear: yearOf(hint?.year), yearMatch: "far" };
+        await idbSet(STORE_TITLES, key, asked);
+        return asked;
+      }
+      return cached;
+    }
     const miss = { tconst: null, label: null, year: null, via: "suggest" };
     await idbSet(STORE_TITLES, key, miss);
     return miss;
@@ -910,9 +1081,28 @@ async function resolveTitle(title, hint) {
     if (sameKind.length) pool = sameKind;
   }
 
+  const year = yearOf(hint?.year);
+
+  // One survivor is taken as it stands, for the reason the local path gives:
+  // there is nothing to choose between, so the year has no work to do.
   let pick = pool[0];
-  for (const candidate of pool) {
-    if (await idbGet(STORE_RATINGS, candidate.id)) { pick = candidate; break; }
+  let moved = false;
+  if (pool.length > 1) {
+    const scored = [];
+    for (let i = 0; i < pool.length; i++) {
+      const candidate = pool[i];
+      scored.push({
+        candidate,
+        score: yearScore(candidate.y, year, kindOf(candidate.qid)),
+        rated: (await idbGet(STORE_RATINGS, candidate.id)) ? 1 : 0,
+        // The endpoint's own order has the last word here, as it always has:
+        // it ranks by popularity, which is the right way to settle a name
+        // several titles answer to equally well.
+        tie: -i
+      });
+    }
+    pick = bestCandidate(scored).candidate;
+    if (year !== null) moved = bestCandidate(scored.map((c) => ({ ...c, score: 0 }))).candidate !== pick;
   }
 
   const resolved = {
@@ -928,6 +1118,14 @@ async function resolveTitle(title, hint) {
     // a pinned record carries neither, because a person is not a resolver.
     via: "suggest"
   };
+  if (year !== null) {
+    // hintYear is also what stops the next lookup of this title asking again:
+    // a record that already knows which year it was resolved under has had its
+    // second opinion (see hintConflict).
+    resolved.hintYear = year;
+    resolved.yearMatch = yearMatchOf(yearScore(pick.y, year, kindOf(pick.qid)));
+    if (moved) resolved.yearDecided = true;
+  }
   await idbSet(STORE_TITLES, key, resolved);
   return resolved;
 }
@@ -1059,9 +1257,10 @@ async function lookup(title, hint) {
 
 // One request per title *and hint*: a card and the hover modal for the same
 // title can disagree about what they know, and merging them would hand one of
-// them the other's answer.
+// them the other's answer. The year is part of that: a homepage card carries no
+// year and a detail page carries one, and those are not the same question.
 function dedupe(title, hint) {
-  const key = `${title}\u0000${hint?.kind || ""}`;
+  const key = `${title}\u0000${hint?.kind || ""}\u0000${yearOf(hint?.year) ?? ""}`;
   if (inFlight.has(key)) return inFlight.get(key);
   const promise = lookup(title, hint).finally(() => inFlight.delete(key));
   inFlight.set(key, promise);
@@ -1139,11 +1338,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // driven by lookups (see refreshStaleDatasets) rather than a scheduler, so
 // nothing runs on days Netflix isn't opened.
 chrome.runtime.onInstalled.addListener(() => {
-  for (const name of ["ratings", "basics", "episode"]) startImport(name).catch(() => {});
+  for (const name of Object.keys(DATASETS)) startImport(name).catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  for (const name of ["ratings", "basics", "episode"]) {
+  for (const name of Object.keys(DATASETS)) {
     const meta = await metaFor(name);
     if (!meta.ready) startImport(name).catch(() => {});
   }
