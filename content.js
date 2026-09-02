@@ -109,6 +109,56 @@ const PLATFORMS = {
     // is only meaningful sitting in a row that already reads "18+ · 2 Seasons
     // · HD". Nothing to render into means nothing rendered.
     modalMeta: null
+  },
+
+  // --- UNVERIFIED ----------------------------------------------------------
+  // NOTHING IN THIS ENTRY HAS BEEN SEEN WORKING ON A LIVE PAGE. Every value
+  // above was measured signed in on the real site; none of these were, and the
+  // two must not be read with the same confidence.
+  //
+  // The card selector was taken from the source of a shipping competitor
+  // extension, not from the DOM. disneyplus.com redirects to JioHotstar from
+  // India, where this was built, so there is no way to check it here and
+  // probably no way for the user to check it either.
+  //
+  // The symptom of it being wrong is total and quiet: no badges anywhere on
+  // Disney+, because nothing matches, nothing is observed and nothing is ever
+  // queued. It cannot half-work, it cannot mis-badge, and it cannot reach
+  // Netflix or Prime — a broken entry here costs those platforms nothing. The
+  // fix, when someone can finally look at a live page, is to correct `cards`
+  // against what is actually there, or to delete this entry along with the
+  // manifest match pattern that lets the script run at all.
+  disney: {
+    hosts: ["disneyplus.com"],
+
+    // The same source also names [data-testid="set-shelf-item"] for the shelf
+    // holding a row of these and [data-testid="details-title-treatment"] for
+    // the title on a detail surface. Neither is listed: a shelf is a row, not a
+    // card, and badging one would pin a single rating over a dozen titles.
+    cards: ['[data-testid="set-item"]'],
+
+    // Off rather than guessed. The best-in-row marker is only meaningful when a
+    // carousel can be told from a grid, and on a site nobody has opened there is
+    // nothing to base that distinction on — the same call Prime makes above,
+    // for a weaker reason.
+    rowCards: null,
+
+    // No inner box named, so the badge hangs off the card and .nrx-host gives
+    // it the positioning context. If set-item turns out to wrap the artwork
+    // rather than frame it, the badge lands in the wrapper's corner: visibly
+    // off, but visible — which is the better failure while the alternative is
+    // inventing a descendant selector to look for.
+    badgeHost: null,
+
+    // Which corner Disney+ leaves clear is exactly the sort of thing that needs
+    // a live page; "right" is the stylesheet's own default, so this is the
+    // absence of a choice rather than a guess at one.
+    badgeCorner: "right",
+
+    // No evidence Disney+ has anything like Netflix's preview metadata row, and
+    // a guessed selector would put the chip somewhere nobody has looked. Null
+    // skips that pass outright.
+    modalMeta: null
   }
 };
 
@@ -183,7 +233,7 @@ const ROW_LINE_TOLERANCE = 40;
 // once per burst rather than once per badge — otherwise the mark would visibly
 // walk down the row as each card came back.
 const ROW_BEST_DELAY = 300;
-// A strip is read as a shape, and past a dozen columns the shape stops being
+
 // The RAG thresholds are user-configurable (see options.html). RAG_DEFAULTS
 // comes from defaults.js, which the manifest loads before this file. These are
 // mutable because a settings change re-colours badges in place — no refetch.
@@ -227,6 +277,11 @@ let retryTimer = null;
 // descendant [aria-label] — so it needs no branch of its own here. That is why
 // the platform config carries no title rule: there is nothing to vary yet, and
 // a hook with one implementation is just indirection.
+//
+// Disney+ is left to this same chain deliberately. Nobody has read a title off
+// one of its cards, so a Disney-shaped branch here would be a guess dressed as
+// a measurement; if the chain is wrong there, the card yields no title and
+// takes no badge, which is the failure the platform config already warns about.
 function titleFromCard(card) {
   const own = card.getAttribute("aria-label");
   if (own && own.trim()) return clean(own);
@@ -343,6 +398,22 @@ function applyDim(card, badge) {
   card.classList.toggle("nrx-dimmed", dim);
 }
 
+// Whether a series finished is the one thing Netflix never says, and it is
+// what decides whether five seasons are a commitment or a cliffhanger nobody
+// resolved. Only stated when the worker is sure: isEnded has to be a real
+// boolean, and an ended series with no end year says nothing rather than
+// inventing a date — or, worse, calling itself still running. A film has no
+// such state at all. Everything the worker doesn't send (an older build, an
+// import that hasn't run) lands here as null, and every surface that asks says
+// nothing — which is why both of them ask this one function rather than
+// reading the three fields for themselves and disagreeing about them.
+function runStatusFor(result) {
+  if (!isSeriesType(result.titleType)) return null;
+  if (typeof result.isEnded !== "boolean") return null;
+  if (result.isEnded) return result.endYear ? `ended ${result.endYear}` : null;
+  return result.endYear ? null : "still running";
+}
+
 // The filters run long after the reply arrives — every settings change
 // re-evaluates them in place — so what the worker said has to outlive the
 // message. Only fields that actually parsed are written, because an absent
@@ -366,6 +437,14 @@ function stampMetadata(badge, result) {
       .map((genre) => genre.trim().toLowerCase());
     if (genres.length) badge.dataset.genres = genres.join("|");
   }
+
+  // Stored rather than written into the tooltip here for the same reason as
+  // everything above it: the tooltip is rebuilt from scratch whenever a
+  // threshold moves or a row picks a different winner, and a phrase that only
+  // existed in the text of the old one would vanish on the first rebuild.
+  // The reply is gone by then; the element is not.
+  const status = runStatusFor(result);
+  if (status) badge.dataset.runStatus = status;
 }
 
 // --- how sure the badge is ------------------------------------------------
@@ -400,11 +479,20 @@ function applyConfidence(badge) {
 // takes the halo away, a later card in the row takes the underline — and a
 // tooltip that accumulated its own history would end up describing a badge that
 // no longer looks like that.
+//
+// The run status is fixed rather than coming and going, but it is rebuilt here
+// with the rest for the same reason: this function owns every line after the
+// base, and a line written anywhere else would be erased by the next rebuild.
 function refreshTip(badge) {
   const base = badge.dataset.tipBase;
   if (!base) return; // an unresolved badge has one fixed line and no markers
 
   const lines = [base];
+  // Ahead of the two below because it is a fact about the title, where those
+  // explain marks the badge is currently wearing. Verbatim from runStatusFor(),
+  // so the tooltip and the preview chip can never word the same fact
+  // differently.
+  if (badge.dataset.runStatus) lines.push(badge.dataset.runStatus);
   if (badge.dataset.confidence === "gem") lines.push("Under-seen: strong score, few votes");
   if (badge.dataset.best) lines.push("Best rated in this row");
   badge.dataset.tip = lines.join("\n");
@@ -785,9 +873,32 @@ function renderBadge(host, result) {
 // The modal is built and torn down repeatedly as the pointer moves across a
 // row, so it is treated like any other element the page adds: found by the
 // same debounced scan, and claimed once.
+// The metadata row carries no title of its own, so the title is read off the
+// artwork beside it — which is only sound while "beside it" means something.
+// The previewModal ancestor is what makes it mean something: one modal is one
+// title, so the first captioned image inside it is that title's.
+//
+// No ancestor, no answer. This used to fall back to the whole document, and on
+// a Netflix detail page — where these rows exist by the dozen and none of them
+// sits in a previewModal — that read the same first image for every one of
+// them: measured at 25 rows on /title/70195800, all stamped with one unrelated
+// film's rating. That is the one failure this extension is built not to have.
+// Every other feature here declines when it cannot be sure — a missing rating,
+// an absent dimming field, a row too short to have a best — and this is the
+// same rule arriving late. A row we cannot place gets no chip; a chip on the
+// wrong title is worse than no chip at all.
+//
+// Nothing replaces the fallback, because there is nothing measured to replace
+// it with: no per-title container on the detail page has been confirmed from a
+// live DOM, and inventing one would be the same guess in a narrower costume.
+// The cost is the chip not appearing on detail pages. The badge carries the
+// rating there anyway, and since it now carries the run status too, this
+// surface is no longer the only place either fact can be read.
 function titleFromModal(meta) {
   const modal = meta.closest('[class*="previewModal"]');
-  const image = (modal || document).querySelector("img[alt]");
+  if (!modal) return null;
+
+  const image = modal.querySelector("img[alt]");
   return image && image.alt.trim() ? clean(image.alt) : null;
 }
 
@@ -819,20 +930,6 @@ function isSeriesType(titleType) {
   return typeof titleType === "string" && titleType.toLowerCase().includes("series");
 }
 
-// Whether a series finished is the one thing Netflix never says, and it is
-// what decides whether five seasons are a commitment or a cliffhanger nobody
-// resolved. Only stated when the worker is sure: isEnded has to be a real
-// boolean, and an ended series with no end year says nothing rather than
-// inventing a date — or, worse, calling itself still running. Everything the
-// worker doesn't send (an older build, an import that hasn't run) lands here
-// as null and the chip stays exactly as it was.
-function runStatusFor(result) {
-  if (!isSeriesType(result.titleType)) return null;
-  if (typeof result.isEnded !== "boolean") return null;
-  if (result.isEnded) return result.endYear ? `ended ${result.endYear}` : null;
-  return result.endYear ? null : "still running";
-}
-
 function renderModalChip(meta, result) {
   if (meta.querySelector(".nrx-chip")) return;
 
@@ -854,9 +951,17 @@ function renderModalChip(meta, result) {
       : `IMDb ${result.rating}`;
 
     // Context, not a verdict, so it is appended in the same muted key as the
-    // alias below rather than competing with the score. It stays out of the
-    // card badge entirely: that badge is one glanceable number, and a number
-    // with a clause after it is no longer glanceable.
+    // alias below rather than competing with the score. The card badge says the
+    // same thing in its tooltip and never on its face: the badge is one
+    // glanceable number, and a number with a clause after it is no longer
+    // glanceable. This surface has the room; that one doesn't.
+    //
+    // Kept even though this preview panel has never once been seen to open
+    // during testing, and Netflix's own "Autoplay previews" setting can switch
+    // it off for good: the chip costs nothing when it never renders, and it is
+    // still right for anyone who does browse with previews on. The badge
+    // gaining the same fact is what makes that acceptable — the information no
+    // longer depends on this panel appearing.
     const status = runStatusFor(result);
     if (status) {
       const state = document.createElement("span");
