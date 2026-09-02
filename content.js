@@ -180,6 +180,28 @@ if (!platform) {
   throw new Error(`[IMDb badges] No platform config for ${location.hostname}`);
 }
 
+// A build stamp on <html>, readable from the page world.
+//
+// It exists because of a specific and repeated waste of time: a content script
+// change was made, committed, and the extension reloaded — and the page went on
+// running the previous copy, with nothing anywhere to say so. Twice the wrong
+// conclusion was drawn from that (once "the bug is fixed", once "the fix does
+// not work"), because the only evidence available was behaviour, and behaviour
+// cannot distinguish "this code is wrong" from "this is not that code".
+//
+// One attribute settles it. Read `document.documentElement.dataset.nrxBuild`
+// from a console or an automation tool and compare it against the version in
+// manifest.json: if they differ, the browser is running something else and no
+// observation of behaviour means anything yet.
+try {
+  const stamp = chrome.runtime.getManifest().version;
+  document.documentElement.dataset.nrxBuild = stamp;
+} catch (e) {
+  // An invalidated extension context (a reload while the page was open) throws
+  // here. That is itself the stale case, and leaving the attribute absent says
+  // so more clearly than any value would.
+}
+
 const CARD_SELECTORS = platform.cards.join(",");
 const MODAL_META = platform.modalMeta;
 const ROW_CARDS = platform.rowCards ? platform.rowCards.join(",") : null;
