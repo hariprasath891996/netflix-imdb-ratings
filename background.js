@@ -1,6 +1,6 @@
 // Background service worker.
 //
-// Four data sources, deliberately split by what each is good at:
+// Three data sources, deliberately split by what each is good at:
 //
 //   Ratings  - IMDb publishes every rated title as a bulk dataset (~8 MB
 //              gzipped, 1.7M rows, refreshed daily). We import it once into
@@ -11,10 +11,6 @@
 //              year, runtime, genres. It is 25x the size of ratings and most
 //              of it is worthless to us, so it is filtered on the way in
 //              against the ratings index rather than stored whole.
-//
-//   Episode  - the episode-to-series map (52 MB gzipped). Stored aggregated
-//              per series, never per episode, because a season strip is the
-//              only thing anyone asks it for.
 //
 //   Title ID - the one thing the datasets can't do is turn "Laapataa Ladies"
 //              into tt21626284, because Netflix's label is often not IMDb's
@@ -41,6 +37,10 @@ const DB_NAME = "nrx";
 // minute importing 1.7M ratings keeps them — and because the title index is
 // derived from the basics store rather than from the network, a v2 install
 // gains it without re-downloading anything (see refreshStaleDatasets).
+//
+// Nothing creates or reads the episodes store any more. A v2 install keeps an
+// orphaned one until some later change has a reason to bump the version; that
+// costs disk and nothing else, which is cheaper than a migration nobody needs.
 const DB_VERSION = 3;
 const STORE_RATINGS = "ratings";   // tconst -> { r, v }
 const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, via?, pinned?, hintYear?, yearMatch?, yearDecided? }
@@ -51,15 +51,22 @@ const STORE_META = "meta";         // bookkeeping, one record per dataset
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 // IMDb regenerates every dataset daily, but only ratings actually move daily.
-// A film's type, year, runtime and genres are immutable and the episode map
-// only ever gains rows, so re-downloading 268 MB for them more than monthly
-// buys nothing. Nothing is hosted and nothing is scheduled: the check rides
+// A film's type, year, runtime and genres are immutable, so re-downloading
+// 216 MB of them more than monthly buys nothing. Nothing is hosted and nothing is scheduled: the check rides
 // along with a lookup, so a file is only ever fetched on a day the extension
 // is actually used, straight from IMDb to this machine.
 const DATASETS = {
   ratings: { url: "https://datasets.imdbws.com/title.ratings.tsv.gz", maxAge: DAY_MS },
   basics: { url: "https://datasets.imdbws.com/title.basics.tsv.gz", maxAge: 30 * DAY_MS },
 };
+
+// Everything that walks the datasets — the status response, the freshness
+// check, install, startup — walks this rather than its own list of names. The
+// order is DATASETS' own and it matters: ratings is first because the other
+// imports read the index it builds. Spelling the names out at each call site
+// is how a dataset that had been removed went on being imported from three
+// places, so there is one list and it is derived from the table itself.
+const DATASET_NAMES = Object.keys(DATASETS);
 
 const NULL = "\\N"; // how IMDb's TSVs spell "no value"
 
@@ -138,9 +145,9 @@ async function idbPutMany(store, entries) {
 }
 
 // --- the rated-titles index ------------------------------------------------
-// Both large imports have to answer "is this tconst rated?" for every row they
-// read - 11.5M times for basics, 8.9M for episode. One IndexedDB read each is
-// not an option, so the ratings store is pulled into memory once per import.
+// The basics import has to answer "is this tconst rated?" for every row it
+// reads - 11.5M times. One IndexedDB read each is not an option, so the
+// ratings store is pulled into memory once per import.
 //
 // It is held as numbers, not strings: an IMDb id is "tt" plus digits, so the
 // digits alone identify it and cost a fraction of the memory across 1.7M
@@ -179,9 +186,9 @@ function unpackRating(packed) {
 // to a number and dropped. There are no awaits inside the callbacks, so the
 // transaction never goes idle and cannot auto-commit mid-pass.
 //
-// Not cached between imports on purpose. It is ~100 MB, the two imports that
-// need it are minutes apart, and a service worker holding that while idle is
-// how an extension gets killed.
+// Dropped as soon as the import that built it is done, on purpose: it is
+// ~100 MB, and a service worker holding that while idle is how an extension
+// gets killed.
 async function buildRatedIndex(withValues) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -326,9 +333,10 @@ async function importRatings() {
 // the cutting, all applied while streaming so the discarded 94% is never
 // stored:
 //
-//   1. no episodes. 880k of the 1.7M rated titles are individual episodes and
-//      none of them needs a year, a runtime or a genre list — an episode's
-//      score comes from the ratings store, joined through the episodes store.
+//   1. no episodes. 880k of the 1.7M rated titles are individual episodes,
+//      and nothing in the extension ever shows one: neither site names an
+//      episode where a title goes, so its year, runtime and genres are dead
+//      weight.
 //   2. no video games. They are the one titleType that a streaming catalogue
 //      provably cannot contain, and kindOf() already refuses to match them to
 //      a hint. Keeping them would only give the title index below a way to
@@ -636,10 +644,10 @@ const IMPORTERS = {
 };
 
 const running = new Map(); // dataset -> promise
-// Two imports at once would only make both slower, and basics and episode read
-// the ratings store while it may be being rewritten, so they run one at a time
-// in the order they were asked for. onInstalled leans on this: it can queue all
-// three and know the two that depend on ratings will find it there.
+// Two imports at once would only make both slower, and basics reads the
+// ratings store while it may be being rewritten, so they run one at a time in
+// the order they were asked for. onInstalled leans on this: it can queue every
+// dataset and know the ones that depend on ratings will find it there.
 let queueTail = Promise.resolve();
 
 function startImport(name) {
@@ -681,12 +689,12 @@ async function datasetStatus() {
 }
 
 async function fullStatus() {
-  // Derived from DATASETS rather than listed by hand: a removed dataset once
-  // survived in five separate literal lists, and startImport threw on it at
-  // every startup behind a swallowed catch.
-  const names = Object.keys(DATASETS);
+  // One entry per dataset that actually exists. The settings page renders
+  // whatever it is handed, so a name reported here but missing from DATASETS
+  // would show as a row that is permanently "not imported" and that no button
+  // on that page could fix.
   const metas = Object.fromEntries(
-    await Promise.all(names.map(async (name) => [name, await metaFor(name)]))
+    await Promise.all(DATASET_NAMES.map(async (name) => [name, await metaFor(name)]))
   );
   const ratings = metas.ratings;
   const stored = await chrome.storage.local.get("datasetProgress");
@@ -704,7 +712,7 @@ async function fullStatus() {
     // Unchanged, and still about ratings: the settings page reads these flat.
     ...ratings,
     datasets: {
-      ...Object.fromEntries(names.map((name) => [name, describe(name, metas[name])]))
+      ...Object.fromEntries(DATASET_NAMES.map((name) => [name, describe(name, metas[name])]))
     },
     // Additive, and outside `datasets` because it is not one: it has no
     // download, no freshness window and nothing to trigger by hand.
@@ -730,7 +738,7 @@ let lastFreshnessCheck = 0;
 async function refreshStaleDatasets() {
   if (Date.now() - lastFreshnessCheck < FRESHNESS_CHECK_MS) return;
   lastFreshnessCheck = Date.now();
-  for (const name of Object.keys(DATASETS)) {
+  for (const name of DATASET_NAMES) {
     const meta = await metaFor(name);
     if (!meta.ready || meta.stale) startImport(name).catch(() => {});
   }
@@ -1332,17 +1340,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Import on install. Ratings first and alone in mattering: the other two are
-// queued behind it, both because they read its index and because a badge
-// should appear a minute in rather than after 268 MB. Day-to-day refreshes are
+// Import on install. Ratings first and alone in mattering: the rest is queued
+// behind it, both because it reads that index and because a badge should
+// appear a minute in rather than after 216 MB. Day-to-day refreshes are
 // driven by lookups (see refreshStaleDatasets) rather than a scheduler, so
 // nothing runs on days Netflix isn't opened.
 chrome.runtime.onInstalled.addListener(() => {
-  for (const name of Object.keys(DATASETS)) startImport(name).catch(() => {});
+  for (const name of DATASET_NAMES) startImport(name).catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  for (const name of Object.keys(DATASETS)) {
+  for (const name of DATASET_NAMES) {
     const meta = await metaFor(name);
     if (!meta.ready) startImport(name).catch(() => {});
   }
