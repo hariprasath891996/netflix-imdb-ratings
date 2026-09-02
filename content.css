@@ -220,111 +220,6 @@
 }
 
 
-/* --- the season strip -----------------------------------------------------
-   Only drawn for a series whose seasons actually differ (see
-   SEASON_SPREAD_MIN in content.js), so anything visible here is a run that
-   changed. The sentence carries the finding and the blocks show where in the
-   run it happened — which is why the sentence is on top and full width, and
-   the blocks are small.
-
-   Sizing is proportional throughout: the blocks share whatever width the modal
-   gives them, so the strip fits a narrow preview and a wide one without being
-   measured against either. */
-.nrx-seasons {
-  width: 100%;
-  flex-basis: 100%; /* its own line when the row it follows is a flex line */
-  box-sizing: border-box;
-  margin: 6px 0 2px;
-
-  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
-  font-variant-numeric: tabular-nums;
-  user-select: none;
-}
-
-/* The actual finding, in words. Light rather than white: it sits under
-   Netflix's own metadata row and should read as our annotation, not as
-   something Netflix said. */
-.nrx-seasons-note {
-  margin-bottom: 4px;
-  color: #d2d2d2;
-  font-size: 12px;
-  line-height: 1.3;
-}
-
-.nrx-seasons-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-}
-
-.nrx-season {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-
-  /* Equal shares of the strip, so twelve seasons fit the same width four do
-     rather than overflowing the modal. The cap on width stops a two-season
-     show drawing two enormous slabs. */
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 46px;
-}
-
-.nrx-season-score {
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-/* Fixed height, because each bar is a percentage of it: this is the axis every
-   season is measured against, and it is only an axis if it is the same for all
-   of them. The faint fill is what makes a short bar read as low rather than as
-   missing. */
-.nrx-season-track {
-  position: relative;
-  width: 100%;
-  height: 20px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.nrx-season-bar {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  border-radius: 2px;
-  background: currentColor;
-}
-
-/* The season number is an axis label, not a score — grey regardless of tier so
-   it never competes with the colour it sits under. */
-.nrx-season-label {
-  font-size: 9px;
-  line-height: 1;
-  color: #8c8c8c;
-}
-
-/* What the cap left out. Stated rather than dropped silently, so a long run
-   never looks like a short one that ends where the strip does. */
-.nrx-season-more {
-  flex: 0 0 auto;
-  margin-left: 2px;
-  font-size: 10px;
-  line-height: 1;
-  color: #8c8c8c;
-  white-space: nowrap;
-}
-
-/* The same four tiers as the badge, off the same user thresholds — a season
-   that would badge green on a card is green here. */
-.nrx-season[data-tier="high"]    { color: #46d369; }
-.nrx-season[data-tier="mid"]     { color: #e5a00d; }
-.nrx-season[data-tier="low"]     { color: #e87c78; }
-.nrx-season[data-tier="unknown"] { color: #8c8c8c; }
-
-
 /* --- Shift+B: get out of the way -----------------------------------------
    Sometimes you just want to look at the artwork. visibility, not display:
    collapsing the chip would reflow Netflix's metadata row, and visibility also
@@ -333,17 +228,15 @@
    nothing — so Netflix's hover preview and click handling carry on exactly as
    they do with the badges showing.
 
-   The chip and the season strip go with the badges deliberately: "hidden"
-   should mean hidden everywhere, not something that depends on which surface
-   you happen to be looking at. The strip leaves its space behind for the same
-   reason the chip does — collapsing it would shuffle the modal's synopsis up
-   mid-fade, and a held gap is cheaper than a jump.
+   The chip goes with the badges deliberately: "hidden" should mean hidden
+   everywhere, not something that depends on which surface you are looking at.
+   It leaves its space behind rather than collapsing, since that would shuffle
+   the modal's synopsis up mid-fade, and a held gap is cheaper than a jump.
 
    Scoped to :root.<class> so it outranks the [data-confidence="low"] opacity
    above, which would otherwise tie and win on source order. */
 :root.nrx-badges-hidden .nrx-badge,
-:root.nrx-badges-hidden .nrx-chip,
-:root.nrx-badges-hidden .nrx-seasons {
+:root.nrx-badges-hidden .nrx-chip {
   opacity: 0;
   visibility: hidden;
 }
@@ -351,15 +244,13 @@
 /* A fade rather than a blink, and the visibility transition is what delays the
    flip to hidden until the fade has finished. */
 .nrx-badge,
-.nrx-chip,
-.nrx-seasons {
+.nrx-chip {
   transition: opacity 0.12s ease, visibility 0.12s;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nrx-badge,
-  .nrx-chip,
-  .nrx-seasons {
+  .nrx-chip {
     transition: none;
   }
 }

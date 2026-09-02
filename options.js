@@ -33,13 +33,12 @@ function ago(ts) {
 }
 
 // The worker imports three files, not one, and two of them are what make the
-// season strip, the filters and finished/running work at all. Reporting only
+// the filters and finished/running work at all. Reporting only
 // ratings meant a failed or unfinished basics import looked like nothing was
 // wrong, while every feature that depends on it silently did nothing.
 const DATASETS = [
   { key: "ratings", label: "Ratings",  unit: "titles", note: "powers the badges" },
   { key: "basics",  label: "Metadata", unit: "titles", note: "type, year, runtime, genres" },
-  { key: "episode", label: "Episodes", unit: "series", note: "season strips" }
 ];
 
 function ago(ts) {
@@ -894,7 +893,7 @@ matchReset.addEventListener("click", async () => {
 
 // --- why isn't this showing? ----------------------------------------------
 // Every feature here declines silently when it lacks the data to be right: a
-// missing badge, an absent season strip and an undimmed card all look like
+// missing badge and an undimmed card both look like
 // nothing happening. That is the correct behaviour and a terrible way to
 // debug, so this asks the worker the same questions the content script asks
 // and reports what came back, including the decisions it would have made.
@@ -954,49 +953,18 @@ async function runDiagnosis() {
     ? diagLine("ok", "Rating", `${result.rating} from ${(result.votes || 0).toLocaleString()} votes → the badge should show ${result.rating}`)
     : diagLine("no", "No rating", "on IMDb but unrated, so the badge shows a dash"));
 
-  // The metadata that gates the season strip, run status and the filters.
+  // The metadata that gates run status and the filters.
   lines.push(result.titleType
     ? diagLine("ok", "Type", result.titleType)
-    : diagLine("no", "No type", "the metadata file has no row for this — season strip, kind filter and finished/running are all skipped"));
+    : diagLine("no", "No type", "the metadata file has no row for this — the kind filter and finished/running are skipped"));
 
   const isSeries = typeof result.titleType === "string"
     && result.titleType.toLowerCase().includes("series");
-
-  if (result.titleType && !isSeries) {
-    lines.push(diagLine("info", "Not a series", "season strips only apply to series"));
-  }
 
   if (isSeries) {
     lines.push(result.isEnded
       ? diagLine("ok", "Finished", `ended ${result.endYear}`)
       : diagLine("info", "Still running", "no end year recorded"));
-
-    if (!result.imdbID) {
-      lines.push(diagLine("no", "No IMDb id", "the season strip needs one and cannot be requested"));
-    } else {
-      let seasons;
-      try {
-        seasons = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
-      } catch {
-        seasons = null;
-      }
-      const list = Array.isArray(seasons?.seasons) ? seasons.seasons : [];
-
-      if (!list.length) {
-        lines.push(diagLine("no", "No episode data",
-          seasons && seasons.ready === false
-            ? "the episodes file hasn't imported yet"
-            : "IMDb has no rated episodes filed under this series"));
-      } else {
-        const avgs = list.map((s) => Number(s.average)).filter(Number.isFinite);
-        const spread = avgs.length > 1 ? Math.max(...avgs) - Math.min(...avgs) : 0;
-        lines.push(diagLine("ok", "Seasons", `${list.length}, rated ${Math.min(...avgs).toFixed(1)}–${Math.max(...avgs).toFixed(1)}`));
-        lines.push(spread >= SEASON_SPREAD_MIN
-          ? diagLine("ok", "Season strip", `spread ${spread.toFixed(1)} — the strip should appear on hover`)
-          : diagLine("info", "Season strip hidden on purpose",
-              `spread ${spread.toFixed(1)} is under ${SEASON_SPREAD_MIN.toFixed(1)}, so the seasons are the same show and nothing is drawn`));
-      }
-    }
   }
 
   diagOut.replaceChildren(...lines);

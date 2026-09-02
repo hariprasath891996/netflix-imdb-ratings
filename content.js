@@ -183,26 +183,7 @@ const ROW_LINE_TOLERANCE = 40;
 // once per burst rather than once per badge — otherwise the mark would visibly
 // walk down the row as each card came back.
 const ROW_BEST_DELAY = 300;
-
-// How far a series' best and worst seasons must sit apart before the season
-// strip is worth drawing at all. Measured against the 230 series on a real
-// Netflix homepage: 107 have more than one season, and only 24 of those (22%)
-// vary by a full point across seasons — the median multi-season series spreads
-// 0.54, p25 0.33, p75 0.89. Under this, the seasons are the same show for
-// viewing purposes and a strip is a row of identical blocks in an already busy
-// hover modal. Over it, the difference is the whole story: Game of Thrones
-// spreads 2.9, House of Cards 4.4. Retune the number here rather than
-// re-deriving the measurement.
-const SEASON_SPREAD_MIN = 1.0;
-
 // A strip is read as a shape, and past a dozen columns the shape stops being
-// legible well before the modal runs out of width. Twelve keeps every block
-// wide enough to hold "8.2" and covers everything on the homepage except the
-// soaps and the long procedurals; those are truncated from the tail rather
-// than cropped silently, because seasons run ascending and someone reading
-// this is deciding whether to start at season 1.
-const SEASON_CAP = 12;
-
 // The RAG thresholds are user-configurable (see options.html). RAG_DEFAULTS
 // comes from defaults.js, which the manifest loads before this file. These are
 // mutable because a settings change re-colours badges in place — no refetch.
@@ -424,7 +405,6 @@ function refreshTip(badge) {
   if (!base) return; // an unresolved badge has one fixed line and no markers
 
   const lines = [base];
-  if (badge.dataset.seasonNote) lines.push(badge.dataset.seasonNote);
   if (badge.dataset.confidence === "gem") lines.push("Under-seen: strong score, few votes");
   if (badge.dataset.best) lines.push("Best rated in this row");
   badge.dataset.tip = lines.join("\n");
@@ -436,15 +416,15 @@ function refreshTip(badge) {
 // pass, for the same reason.
 function recolourAll() {
   // Every surface that carries a rating keeps it in the same place, so one
-  // pass over the three of them is the whole recolour — including the season
+  // pass over both of them is the whole recolour — including the
   // blocks, which must move tier with the badges or the strip would be
   // colouring by yesterday's thresholds.
-  for (const element of document.querySelectorAll(".nrx-badge, .nrx-chip, .nrx-season")) {
+  for (const element of document.querySelectorAll(".nrx-badge, .nrx-chip")) {
     const rating = element.dataset.rating;
     if (rating) element.dataset.tier = tierFor(rating);
   }
 
-  // Only .nrx-badge lives on a card; the chip and the season strip live inside
+  // Only .nrx-badge lives on a card; the chip lives inside
   // the hover-preview modal, which isn't a card and is never dimmed. closest()
   // rather than parentElement because the badge's exact depth is hostFor()'s
   // business, not this function's.
@@ -887,173 +867,6 @@ function renderModalChip(meta, result) {
   meta.insertBefore(chip, meta.firstChild);
 }
 
-// --- the season strip -----------------------------------------------------
-// A series rating is an average of averages, and it hides the thing people
-// actually ask each other about: does it stay good. One number cannot tell
-// Game of Thrones' 9.0-then-6.4 apart from a flat 8.4, and those are opposite
-// recommendations.
-//
-// The strip is not the message, though — the sentence above it is. Most
-// multi-season series have nothing to report (see SEASON_SPREAD_MIN), and the
-// ones that do are better served by "drops to 6.4 in season 8" than by a chart
-// the reader has to decode. The blocks exist to show where in the run that
-// happens and how sharply.
-
-// Seasons the response can't be drawn from are dropped rather than defaulted:
-// a block with no bar and no number would be a hole in the axis, and a bad
-// season number would put it in the wrong place on that axis.
-function usableSeasons(seasons) {
-  const usable = [];
-  for (const entry of seasons) {
-    const season = Number(entry && entry.season);
-    const average = Number(entry && entry.average);
-    if (!Number.isInteger(season) || season < 1) continue;
-    if (!Number.isFinite(average) || average <= 0) continue;
-    usable.push({
-      season,
-      average,
-      episodes: Number(entry.episodes),
-      min: Number(entry.min),
-      max: Number(entry.max),
-      totalVotes: Number(entry.totalVotes)
-    });
-  }
-
-  // The worker promises ascending order, and everything below reads "the last
-  // one" as "the latest season" — the sentence is wrong, not just untidy, if
-  // that ever stops being true.
-  return usable.sort((a, b) => a.season - b.season);
-}
-
-// Plain language, because a number in a sentence beats a chart nobody reads.
-// The worst season is what the sentence is about in every case but one — that
-// is the thing a person is deciding against — and only the shape of where it
-// falls changes the wording. The exception is a run that starts at its worst
-// and ends at its best, which is a series that got good and deserves to be
-// described as one. "Climbs" is deliberately not reached when the final season
-// merely edges out the rest, or Game of Thrones with an extra season would be
-// reported as improving.
-function seasonHeadline(seasons) {
-  const first = seasons[0];
-  const last = seasons[seasons.length - 1];
-  let worst = first;
-  let best = first;
-  for (const entry of seasons) {
-    if (entry.average < worst.average) worst = entry;
-    if (entry.average > best.average) best = entry;
-  }
-
-  if (worst.season === last.season) return `drops to ${worst.average.toFixed(1)} in season ${worst.season}`;
-  if (worst.season === first.season && best.season === last.season) {
-    return `climbs to ${best.average.toFixed(1)} by season ${best.season}`;
-  }
-  return `weakest at season ${worst.season} (${worst.average.toFixed(1)})`;
-}
-
-function seasonBlock(entry, lo, hi) {
-  const block = document.createElement("div");
-  block.className = "nrx-season";
-
-  // Both are what recolourAll() re-reads, so a threshold drag recolours the
-  // strip in the same pass as the badges rather than needing its own.
-  block.dataset.rating = String(entry.average);
-  block.dataset.tier = tierFor(entry.average);
-
-  const score = document.createElement("span");
-  score.className = "nrx-season-score";
-  score.textContent = entry.average.toFixed(1);
-
-  const track = document.createElement("span");
-  track.className = "nrx-season-track";
-
-  // Scaled to the series' own range rather than to 0-10, because the question
-  // is which season is worse than which — and on a 0-10 axis every season of
-  // everything worth watching is the same tall bar. The floor keeps the lowest
-  // season visible as a bar rather than as nothing; SEASON_SPREAD_MIN is what
-  // stops the zoom turning noise into a cliff, since a series only reaches
-  // this code when its range is a full point or more.
-  const bar = document.createElement("span");
-  bar.className = "nrx-season-bar";
-  const fill = 0.16 + 0.84 * ((entry.average - lo) / (hi - lo));
-  bar.style.height = `${Math.round(Math.min(1, Math.max(0, fill)) * 100)}%`;
-  track.appendChild(bar);
-
-  const label = document.createElement("span");
-  label.className = "nrx-season-label";
-  label.textContent = String(entry.season);
-
-  block.append(score, track, label);
-
-  // Read aloud, the bare blocks are "8.1 1 9.0 2 9.3 3" — a number soup that
-  // means nothing without the layout. role=img makes each block one labelled
-  // graphic instead, which is what it is.
-  block.setAttribute("role", "img");
-  block.setAttribute("aria-label", `Season ${entry.season}: ${entry.average.toFixed(1)} average`);
-
-  // The block is deliberately just a number and a bar; the detail behind them
-  // goes where detail already goes on this extension — the shared tooltip.
-  const tip = [`Season ${entry.season} · ${entry.average.toFixed(1)} average`];
-  if (Number.isFinite(entry.episodes) && entry.episodes > 0) {
-    tip[0] += ` · ${entry.episodes} episode${entry.episodes === 1 ? "" : "s"}`;
-  }
-  // An average of 8.2 covers both a level season and one with a 6.1 in it, and
-  // the spread is the difference between "consistent" and "patchy".
-  if (Number.isFinite(entry.min) && Number.isFinite(entry.max) && entry.max > entry.min) {
-    tip.push(`Episodes ${entry.min.toFixed(1)}-${entry.max.toFixed(1)}`);
-  }
-  if (Number.isFinite(entry.totalVotes) && entry.totalVotes > 0) {
-    tip.push(`${entry.totalVotes.toLocaleString()} votes across the season`);
-  }
-  block.dataset.tip = tip.join("\n");
-  block.addEventListener("mouseenter", () => showTip(block));
-  block.addEventListener("mouseleave", hideTip);
-
-  return block;
-}
-
-function renderSeasonStrip(meta, seasons) {
-  // The modal is rebuilt constantly, so the same belt-and-braces as the chip:
-  // one strip per metadata row, claimed on sight.
-  const parent = meta.parentElement;
-  if (!parent || parent.querySelector(".nrx-seasons")) return;
-
-  const usable = usableSeasons(seasons);
-  if (usable.length < 2) return; // one bar is not a shape
-
-  const lo = Math.min(...usable.map((entry) => entry.average));
-  const hi = Math.max(...usable.map((entry) => entry.average));
-  if (hi - lo < SEASON_SPREAD_MIN) return; // nothing happened; say nothing
-
-  const strip = document.createElement("div");
-  strip.className = "nrx-seasons";
-
-  const note = document.createElement("div");
-  note.className = "nrx-seasons-note";
-  note.textContent = seasonHeadline(usable);
-  strip.appendChild(note);
-
-  const row = document.createElement("div");
-  row.className = "nrx-seasons-row";
-
-  // The scale spans every season with data, not just the drawn ones, so the
-  // bars stay true to the sentence above them even when the run is truncated.
-  for (const entry of usable.slice(0, SEASON_CAP)) row.appendChild(seasonBlock(entry, lo, hi));
-
-  const dropped = Math.max(0, usable.length - SEASON_CAP);
-  if (dropped > 0) {
-    const more = document.createElement("span");
-    more.className = "nrx-season-more";
-    more.textContent = `+${dropped}`;
-    more.dataset.tip = `${dropped} later season${dropped === 1 ? "" : "s"} not shown`;
-    more.addEventListener("mouseenter", () => showTip(more));
-    more.addEventListener("mouseleave", hideTip);
-    row.appendChild(more);
-  }
-
-  strip.appendChild(row);
-  meta.insertAdjacentElement("afterend", strip);
-}
-
 // Netflix rebuilds the preview modal as the pointer crosses a row, and reuses
 // the nodes: a metadata row that was Dexter a moment ago is The Mentalist now.
 // A reply that arrives after that swap must not paint. Each pass stamps its
@@ -1061,60 +874,6 @@ function renderSeasonStrip(meta, seasons) {
 // stamp — or an element no longer in the document — is answering a question
 // nobody is asking any more.
 let modalPass = 0;
-
-// Netflix rebuilds the preview modal while it animates open, so the node that
-// was claimed at the start of a lookup is often gone by the time a second round
-// trip returns. The chip survived that because it renders after one await; the
-// strip did not, because it rendered after two.
-//
-// So fetching and drawing are separated. Seasons are cached per IMDb id, the
-// resolved id is stamped on the metadata row, and drawing is a synchronous read
-// of that cache which any later scan can repeat. A rebuilt modal is a fresh
-// node without our claim, so it re-processes, hits the cache, and draws with no
-// await at all.
-const seasonsCache = new Map();
-
-function ensureSeasonStrip(meta) {
-  const imdbID = meta.dataset.nrxImdb;
-  if (!imdbID) return;
-  const seasons = seasonsCache.get(imdbID);
-  if (!seasons) return;
-  renderSeasonStrip(meta, seasons);
-}
-
-// The strip lives inside Netflix's hover preview. That panel is a per-profile
-// setting many people turn off — and we are separately planning to offer
-// turning it off as a feature — so a season finding that only appears there is
-// invisible to a large share of users. The badge is the surface that always
-// exists, so the same sentence is attached to its tooltip as a marker line.
-async function attachSeasonNote(badge, result) {
-  if (!isSeriesType(result.titleType) || !result.imdbID) return;
-
-  let seasons = seasonsCache.get(result.imdbID);
-  if (!seasons) {
-    try {
-      const reply = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
-      if (!reply || !Array.isArray(reply.seasons)) return;
-      seasons = reply.seasons;
-      seasonsCache.set(result.imdbID, seasons);
-    } catch (e) {
-      return;
-    }
-  }
-
-  const usable = usableSeasons(seasons);
-  if (usable.length < 2) return;
-
-  const lo = Math.min(...usable.map((entry) => entry.average));
-  const hi = Math.max(...usable.map((entry) => entry.average));
-  if (hi - lo < SEASON_SPREAD_MIN) return; // same gate as the strip: say nothing
-
-  const line = seasonHeadline(usable);
-  if (!line || !badge.isConnected) return;
-
-  badge.dataset.seasonNote = line;
-  refreshTip(badge);
-}
 
 async function processModal(meta) {
   if (meta.dataset.nrxDone) return;
@@ -1146,37 +905,6 @@ async function processModal(meta) {
 
   renderModalChip(meta, result);
 
-  // Films have no seasons and an unresolved title has nothing to ask about,
-  // and a worker that predates the seasons message must not be asked either —
-  // titleType being absent is exactly that case, and it lands here as "not a
-  // series", leaving the chip as the whole feature.
-  if (!isSeriesType(result.titleType) || !result.imdbID) return;
-
-  // Stamp the id first: it is what lets any later pass draw the strip without
-  // repeating the lookup, including onto a node that does not exist yet.
-  meta.dataset.nrxImdb = result.imdbID;
-
-  if (seasonsCache.has(result.imdbID)) {
-    ensureSeasonStrip(meta);
-    return;
-  }
-
-  let episodes;
-  try {
-    episodes = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
-  } catch (e) {
-    // No handler for the message yet, or the episode table never imported.
-    return;
-  }
-  if (!episodes || !Array.isArray(episodes.seasons)) return;
-
-  seasonsCache.set(result.imdbID, episodes.seasons);
-
-  // Draw into whichever metadata row is on screen now, not the one captured
-  // before the await — by this point they are frequently different elements.
-  const live = document.querySelector(MODAL_META);
-  if (live && live.dataset.nrxImdb === result.imdbID) ensureSeasonStrip(live);
-  else if (stillCurrent()) ensureSeasonStrip(meta);
 }
 
 // --- the lookup pipeline --------------------------------------------------
@@ -1217,11 +945,6 @@ async function process(card) {
   }
 
   renderBadge(hostFor(card), result);
-
-  // Fire and forget: the badge is already on screen and correct, and the season
-  // line only ever adds a tooltip row it did not have.
-  const badge = hostFor(card).querySelector(".nrx-badge");
-  if (badge) attachSeasonNote(badge, result);
 }
 
 const visibility = new IntersectionObserver(
@@ -1258,13 +981,7 @@ function scan(root = document) {
   // stand-in: an empty selector would throw, and a guessed one would put the
   // chip somewhere nobody has looked.
   if (MODAL_META) {
-    for (const meta of root.querySelectorAll(MODAL_META)) {
-      processModal(meta);
-      // Cheap and synchronous: if this row already knows its id and the seasons
-      // are cached, the strip appears on this pass even when the pass that
-      // fetched them was drawing into a node Netflix had already discarded.
-      ensureSeasonStrip(meta);
-    }
+    for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
   }
 }
 

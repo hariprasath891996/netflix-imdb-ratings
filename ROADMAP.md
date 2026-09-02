@@ -37,7 +37,6 @@ That is real evidence. It is not the same as running it.
 | 14 | Best-in-row marker | Floored at your green line, recomputed as rows fill |
 | 15 | Rating restated inside the hover preview | Netflix only |
 | 16 | Series-vs-film disambiguation | Reads Netflix's own "5 Seasons" / "1h 52m" |
-| 17 | Season strip, gated on spread ≥ 1.0 | Silent on 78% of series, deliberately |
 | 18 | Is it finished, or still running | 76% of homepage series have ended |
 | 19 | Sort a grid by IMDb rating | Works on Netflix's bucketed DOM. **The one feature that could break the page** — see risks |
 | 20 | Netflix: rows, search, My List, genre grids | Search needed no work |
@@ -128,6 +127,12 @@ arbitrarily: **ratings stay free permanently**, honouring the licence and
 serving as the acquisition route (store search for "imdb netflix" is the
 channel), while the watching and capture bundle is what is sold. That is a
 split with an argument behind it.
+
+## Parked — built, then removed
+
+| Feature | Why it was pulled |
+| --- | --- |
+| Season strip / per-season ratings | **Built and working, then removed on reflection.** The decision made while browsing is "should I start this", and the overall rating answers that. Per-season quality answers "should I keep going", which is asked three seasons in while clicking next-episode — not while hovering cards on a homepage. The information is real; it arrives at the wrong moment. Knowing that Game of Thrones collapses in season 8 does not stop anyone watching seasons 1–7. It also failed the test the rest of this list is sorted by, and was defended here on the grounds that no competitor had it — which is not the same as it being useful. Removing it took `title.episode` (52 MB) and its import with it. The measurements are worth keeping if it is ever revisited: across 230 homepage series, 107 have multiple seasons but only 22% vary by a full point, median spread 0.54 — so even at its best the feature had something to say about roughly one series in ten. Worth reconsidering only somewhere the "keep going" question is actually being asked, such as on a series' own page mid-watch |
 
 ## Dropped
 

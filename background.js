@@ -45,7 +45,6 @@ const DB_VERSION = 3;
 const STORE_RATINGS = "ratings";   // tconst -> { r, v }
 const STORE_TITLES = "titles";     // normalised title -> { tconst, label, year, qid?, via?, pinned? }
 const STORE_BASICS = "basics";     // tconst -> compact metadata, see importBasics()
-const STORE_EPISODES = "episodes"; // parent tconst -> { s: [season aggregate] }
 const STORE_TITLE_INDEX = "titleIndex"; // bucket number -> Map(name -> packed id), see buildTitleIndex()
 const STORE_META = "meta";         // bookkeeping, one record per dataset
 
@@ -60,7 +59,6 @@ const DAY_MS = 1000 * 60 * 60 * 24;
 const DATASETS = {
   ratings: { url: "https://datasets.imdbws.com/title.ratings.tsv.gz", maxAge: DAY_MS },
   basics: { url: "https://datasets.imdbws.com/title.basics.tsv.gz", maxAge: 30 * DAY_MS },
-  episode: { url: "https://datasets.imdbws.com/title.episode.tsv.gz", maxAge: 30 * DAY_MS }
 };
 
 const NULL = "\\N"; // how IMDb's TSVs spell "no value"
@@ -77,7 +75,6 @@ function openDb() {
       if (!db.objectStoreNames.contains(STORE_RATINGS)) db.createObjectStore(STORE_RATINGS);
       if (!db.objectStoreNames.contains(STORE_TITLES)) db.createObjectStore(STORE_TITLES);
       if (!db.objectStoreNames.contains(STORE_BASICS)) db.createObjectStore(STORE_BASICS);
-      if (!db.objectStoreNames.contains(STORE_EPISODES)) db.createObjectStore(STORE_EPISODES);
       if (!db.objectStoreNames.contains(STORE_TITLE_INDEX)) db.createObjectStore(STORE_TITLE_INDEX);
       if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META);
     };
@@ -627,155 +624,6 @@ async function buildTitleIndex() {
   return names;
 }
 
-// --- importing title.episode -----------------------------------------------
-// The file is one row per episode, 8.9M of them, and storing it that way would
-// be both huge and useless: nothing ever asks "what is episode tt123?". The
-// only question is "how did each season of this series score?", so the file is
-// aggregated as it streams and only the answer is kept — one record per parent
-// series, a few hundred thousand of them.
-//
-// Aggregation has to happen in memory because the file is sorted by episode
-// id, not by parent, so a series' episodes arrive scattered across the whole
-// stream. The accumulator is keyed by number for the memory reasons above.
-//
-// Episodes of an unrated parent are skipped outright. That is not a guess: the
-// only way anyone asks for a season strip is the "seasons" message, and the
-// only imdbID a caller can have came from a lookup — which returns imdbID on
-// the rated branch alone. A season strip for an unrated series is unreachable
-// by construction, so accumulating one is pure cost, and it is a large one:
-// unrated parents are roughly a third of the parent map.
-//
-// The cost is a lag, not a gap. A series that gains its first rating today
-// keeps no strip until the episode file is next imported, which is monthly
-// rather than daily. A series with rated episodes and no rating of its own is
-// rare enough, and its strip needs two seasons a point apart before it draws
-// anything at all, that a month of waiting is the right trade for a third of
-// the memory.
-async function importEpisodes() {
-  const ratingsMeta = await idbGet(STORE_META, "ratings");
-  if (!ratingsMeta) throw new Error("episode needs the ratings index first");
-
-  await setProgress("episode", { phase: "downloading", rows: 0, kept: 0 });
-
-  const { response, previous } = await fetchDataset("episode");
-
-  if (response.status === 304) {
-    await idbSet(STORE_META, "episode", { ...previous, builtAt: Date.now() });
-    await setProgress("episode", { phase: "done", rows: previous.rows ?? 0, kept: previous.count });
-    return previous.count;
-  }
-
-  if (!response.ok) throw new Error(`episode HTTP ${response.status}`);
-  const lastModified = response.headers.get("last-modified");
-
-  await setProgress("episode", { phase: "indexing", rows: 0, kept: 0 });
-  const rated = await buildRatedIndex(true);
-
-  const parents = new Map(); // parent id (number) -> Map(season -> accumulator)
-  let rows = 0;
-  let reported = 0;
-  let stored = 0;
-
-  try {
-    await forEachLine(
-      response,
-      // Read by prefix rather than split for the reason importBasics does it:
-      // three of the four columns are wanted and the two tests that reject
-      // most rows are decided by the first three, so 8.9M four-way splits buy
-      // nothing.
-      (line) => {
-        rows++;
-        const tab1 = line.indexOf("\t");
-        if (tab1 < 0) return;
-        const tab2 = line.indexOf("\t", tab1 + 1);
-        if (tab2 < 0) return;
-        const tab3 = line.indexOf("\t", tab2 + 1);
-        if (tab3 < 0) return;
-
-        const parent = idNumber(line.slice(tab1 + 1, tab2));
-        if (parent === null || !rated.has(parent)) return;
-
-        // An episode with no season number can't be placed on a season strip,
-        // and a strip is the only thing this store exists to draw.
-        const seasonField = line.slice(tab2 + 1, tab3);
-        if (seasonField === NULL) return;
-        const season = +seasonField;
-        if (!Number.isFinite(season)) return;
-
-        let seasons = parents.get(parent);
-        if (!seasons) parents.set(parent, (seasons = new Map()));
-        let acc = seasons.get(season);
-        if (!acc) seasons.set(season, (acc = { c: 0, n: 0, sum: 0, lo: 0, hi: 0, v: 0 }));
-
-        acc.c++;
-
-        const episode = idNumber(line.slice(0, tab1));
-        const packed = episode === null ? undefined : rated.get(episode);
-        if (packed === undefined) return; // counted, but it has no score to average
-
-        const { rating, votes } = unpackRating(packed);
-        if (acc.n === 0 || rating < acc.lo) acc.lo = rating;
-        if (acc.n === 0 || rating > acc.hi) acc.hi = rating;
-        acc.n++;
-        acc.sum += rating;
-        acc.v += votes;
-      },
-      // Nothing is written to disk during the pass, so there is no flush to
-      // hang the progress report off; every half-million rows is often enough
-      // for a number that only has to look like it is moving.
-      async () => {
-        if (rows - reported >= 500000) {
-          reported = rows;
-          await setProgress("episode", { phase: "importing", rows, kept: 0 });
-        }
-      }
-    );
-  } finally {
-    // The ratings index is the larger of the two structures held here and is
-    // finished with; drop it before building the records.
-    rated.clear();
-  }
-
-  await setProgress("episode", { phase: "writing", rows, kept: 0 });
-
-  let batch = [];
-  for (const [parent, seasons] of parents) {
-    const list = [];
-    for (const [season, acc] of seasons) {
-      // A season nobody has rated has no average, min or max, so it would only
-      // put a hole in the strip. Dropping it keeps every number in the
-      // contract a real number rather than a null the caller has to handle.
-      if (acc.n === 0) continue;
-      list.push({
-        n: season,
-        c: acc.c,
-        r: acc.n,
-        a: Math.round((acc.sum / acc.n) * 100) / 100,
-        lo: acc.lo,
-        hi: acc.hi,
-        v: acc.v
-      });
-    }
-    if (!list.length) continue; // no rated episode anywhere in the series
-
-    list.sort((a, b) => a.n - b.n);
-    batch.push([idString(parent), { s: list }]);
-    stored++;
-
-    if (batch.length >= 5000) {
-      await idbPutMany(STORE_EPISODES, batch);
-      batch = [];
-      await setProgress("episode", { phase: "writing", rows, kept: stored });
-    }
-  }
-  if (batch.length) await idbPutMany(STORE_EPISODES, batch);
-  parents.clear();
-
-  await idbSet(STORE_META, "episode", { count: stored, rows, builtAt: Date.now(), lastModified });
-  await setProgress("episode", { phase: "done", rows, kept: stored });
-  return stored;
-}
-
 // --- running the imports ---------------------------------------------------
 // titleIndex is in here so it shares the queue and the failure handling, but
 // deliberately not in DATASETS: it has no url and no maxAge, it is derived
@@ -784,7 +632,6 @@ async function importEpisodes() {
 const IMPORTERS = {
   ratings: importRatings,
   basics: importBasics,
-  episode: importEpisodes,
   titleIndex: buildTitleIndex
 };
 
@@ -1221,39 +1068,9 @@ function dedupe(title, hint) {
   return promise;
 }
 
-// Pure read, always. The aggregate was computed at import time precisely so
-// that drawing a season strip costs one IndexedDB get and no network at all.
-async function seasonsFor(imdbID) {
-  const record = await idbGetSafe(STORE_EPISODES, imdbID);
-  if (!record?.s) {
-    // Distinguishable, for a caller that wants to say "not imported yet"
-    // rather than "this isn't a series": the list itself is empty either way.
-    const meta = await metaFor("episode");
-    return { seasons: [], ready: meta.ready };
-  }
-
-  return {
-    ready: true,
-    seasons: record.s.map((x) => ({
-      season: x.n,
-      episodes: x.c,
-      rated: x.r,
-      average: x.a,
-      min: x.lo,
-      max: x.hi,
-      totalVotes: x.v
-    }))
-  };
-}
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "lookup" && message.title) {
     dedupe(message.title, message.hint).then(sendResponse);
-    return true;
-  }
-
-  if (message?.type === "seasons" && message.imdbID) {
-    seasonsFor(message.imdbID).then(sendResponse, () => sendResponse({ seasons: [], ready: false }));
     return true;
   }
 
