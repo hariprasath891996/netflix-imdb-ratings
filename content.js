@@ -1061,6 +1061,26 @@ function renderSeasonStrip(meta, seasons) {
 // nobody is asking any more.
 let modalPass = 0;
 
+// Netflix rebuilds the preview modal while it animates open, so the node that
+// was claimed at the start of a lookup is often gone by the time a second round
+// trip returns. The chip survived that because it renders after one await; the
+// strip did not, because it rendered after two.
+//
+// So fetching and drawing are separated. Seasons are cached per IMDb id, the
+// resolved id is stamped on the metadata row, and drawing is a synchronous read
+// of that cache which any later scan can repeat. A rebuilt modal is a fresh
+// node without our claim, so it re-processes, hits the cache, and draws with no
+// await at all.
+const seasonsCache = new Map();
+
+function ensureSeasonStrip(meta) {
+  const imdbID = meta.dataset.nrxImdb;
+  if (!imdbID) return;
+  const seasons = seasonsCache.get(imdbID);
+  if (!seasons) return;
+  renderSeasonStrip(meta, seasons);
+}
+
 async function processModal(meta) {
   if (meta.dataset.nrxDone) return;
   meta.dataset.nrxDone = "1";
@@ -1097,6 +1117,15 @@ async function processModal(meta) {
   // series", leaving the chip as the whole feature.
   if (!isSeriesType(result.titleType) || !result.imdbID) return;
 
+  // Stamp the id first: it is what lets any later pass draw the strip without
+  // repeating the lookup, including onto a node that does not exist yet.
+  meta.dataset.nrxImdb = result.imdbID;
+
+  if (seasonsCache.has(result.imdbID)) {
+    ensureSeasonStrip(meta);
+    return;
+  }
+
   let episodes;
   try {
     episodes = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
@@ -1105,9 +1134,14 @@ async function processModal(meta) {
     return;
   }
   if (!episodes || !Array.isArray(episodes.seasons)) return;
-  if (!stillCurrent()) return;
 
-  renderSeasonStrip(meta, episodes.seasons);
+  seasonsCache.set(result.imdbID, episodes.seasons);
+
+  // Draw into whichever metadata row is on screen now, not the one captured
+  // before the await — by this point they are frequently different elements.
+  const live = document.querySelector(MODAL_META);
+  if (live && live.dataset.nrxImdb === result.imdbID) ensureSeasonStrip(live);
+  else if (stillCurrent()) ensureSeasonStrip(meta);
 }
 
 // --- the lookup pipeline --------------------------------------------------
@@ -1184,7 +1218,13 @@ function scan(root = document) {
   // stand-in: an empty selector would throw, and a guessed one would put the
   // chip somewhere nobody has looked.
   if (MODAL_META) {
-    for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
+    for (const meta of root.querySelectorAll(MODAL_META)) {
+      processModal(meta);
+      // Cheap and synchronous: if this row already knows its id and the seasons
+      // are cached, the strip appears on this pass even when the pass that
+      // fetched them was drawing into a node Netflix had already discarded.
+      ensureSeasonStrip(meta);
+    }
   }
 }
 
