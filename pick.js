@@ -105,10 +105,17 @@
   // Prime Video, Amazon and Disney+ this file creates the container and is the
   // only button in it. Both directions are the same two lines.
   //
-  // The contract is three things and no more:
+  // The contract is four things and no more:
   //   - the container is `.nrx-launcher`;
   //   - an item in it carries `nrx-launcher-item`, which is what takes the item
-  //     out of its own fixed positioning and hands the corner to the container;
+  //     out of its own fixed positioning AND out of its own appearance: the
+  //     pill's surface, size, type, states and 44px hit target all come from
+  //     that one class, so the two buttons are one control set by construction
+  //     rather than by two files agreeing to copy each other;
+  //   - an item's contents are, in order, `.nrx-launcher-icon` (an inline SVG
+  //     mark), `.nrx-launcher-label` (the words) and `.nrx-launcher-key` (the
+  //     keycap chip naming the chord). All three are optional to the layout;
+  //     none of them is optional to a control anyone can find;
   //   - `data-launch` fixes the stacking order, so a re-mount after a re-render
   //     cannot swap the two buttons round under the user's cursor.
   // It is styled in pick.css, which is the file the launcher arrived with.
@@ -120,6 +127,70 @@
       document.body.appendChild(bar);
     }
     return bar;
+  }
+
+  // The launcher's mark. createElementNS rather than innerHTML because these
+  // sites ship Content-Security-Policy headers and one Trusted Types rollout
+  // would make an innerHTML assignment throw rather than degrade; building the
+  // nodes is a handful of lines and cannot be broken by a header. No external
+  // file (a content script's asset would need web_accessible_resources), no
+  // icon font, and no emoji — a 🎲 is someone else's artwork at someone else's
+  // weight, and renders differently on every OS this runs on.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgNode(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const name of Object.keys(attrs)) {
+      node.setAttribute(name, String(attrs[name]));
+    }
+    return node;
+  }
+
+  // A die, five-face. A die rather than a shuffle arrow because shuffle means
+  // "play these in some order" on every one of these sites — it is already
+  // taken, and it is the wrong promise: this button returns exactly one title.
+  // Five pips rather than one or six because five is the face whose silhouette
+  // survives 16px: four corners and a centre still read as a die when the pips
+  // are two pixels across, where a six collapses into two grey bars.
+  //
+  // The geometry is set by the one measurement that matters at this size — the
+  // diagonal gap between a corner pip and the centre one. At r=1.5 with the
+  // corners on 7.7/16.3 that gap is ~3.1 units, a clear 2px of unpainted
+  // surface at 16px; pips any fatter or any closer in and the five-face fuses
+  // into an X. Every pip also clears the rounded corner's inner arc, so none of
+  // them can graze the frame.
+  function dieMark() {
+    const svg = svgNode("svg", {
+      class: "nrx-launcher-icon",
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.9",
+      "stroke-linejoin": "round",
+      // Decorative: the button's accessible name already says what it does, and
+      // an SVG announced beside it would only ever be noise.
+      "aria-hidden": "true",
+      focusable: "false",
+    });
+
+    svg.appendChild(
+      svgNode("rect", { x: "3", y: "3", width: "18", height: "18", rx: "4" })
+    );
+    const pips = [
+      [7.7, 7.7],
+      [16.3, 7.7],
+      [12, 12],
+      [7.7, 16.3],
+      [16.3, 16.3],
+    ];
+    for (const [cx, cy] of pips) {
+      svg.appendChild(
+        svgNode("circle", { cx, cy, r: "1.5", fill: "currentColor", stroke: "none" })
+      );
+    }
+    return svg;
   }
 
   // --- settings -------------------------------------------------------------
@@ -1035,15 +1106,25 @@
   // point. Shift+P is the fast path for the second time and every time after,
   // and it stays the fast path — but the first time has to be something a user
   // can find by looking, in the corner where they already look for an
-  // extension's own controls. The tooltip names the chord, so the button
-  // teaches it rather than replacing it.
+  // extension's own controls.
+  //
+  // What the tooltip could not do: it named the chord, which is only useful to
+  // someone already hovering a button they have already found. Measured in a
+  // real browser over Netflix's poster artwork, this pill at its old resting
+  // opacity read as a stray caption — so the most valuable thing in the
+  // extension, the two-second path from "I can't decide" to something playing,
+  // was effectively invisible. It is now an opaque pill with a die on it and
+  // the chord on a keycap chip: findable by looking, scannable by mark, and it
+  // teaches the shortcut that makes it redundant. The surface is
+  // `.nrx-launcher > .nrx-launcher-item` in pick.css, shared with genres.js's
+  // pill so the two stay one set.
   //
   // Built once and kept, like genres.js's. It is never given a tabindex: it is
   // appended to the end of <body>, so it is the last tab stop on the page
   // rather than something a keyboard user has to walk past to reach the site's
   // own content.
   function buildTrigger() {
-    const button = element("button", "nrx-pick-trigger nrx-launcher-item", "Pick for me");
+    const button = element("button", "nrx-pick-trigger nrx-launcher-item");
     button.type = "button";
     button.dataset.launch = "pick";
     button.setAttribute("aria-haspopup", "dialog");
@@ -1051,6 +1132,23 @@
     button.setAttribute("aria-label", "Pick something for me to watch");
     button.setAttribute("aria-keyshortcuts", "Shift+P");
     button.title = "Pick something for me to watch (Shift+P)";
+
+    const label = element("span", "nrx-launcher-label", "Pick for me");
+
+    // ⇧ rather than "Shift+", because "Shift+P" beside the words is wider than
+    // the words and turns a pill into a sentence. The spelled-out form is not
+    // lost: it is the title above and the aria-keyshortcuts above, which are
+    // the two places a user who does not recognise the glyph will look.
+    //
+    // aria-hidden because that same aria-keyshortcuts already publishes the
+    // chord properly. Without it a screen reader would read the chip as literal
+    // text — "up-pointing arrow, P" — immediately after announcing the real
+    // shortcut, which is noise rather than redundancy. The button's aria-label
+    // means the chip cannot affect the accessible name either way.
+    const key = element("kbd", "nrx-launcher-key", "⇧P");
+    key.setAttribute("aria-hidden", "true");
+
+    button.append(dieMark(), label, key);
 
     // Exactly what the chord does, for the same reason it does it: pressing
     // again means "not that one". In practice the second half is unreachable —

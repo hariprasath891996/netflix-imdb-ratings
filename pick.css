@@ -85,18 +85,187 @@
   display: none;
 }
 
-/* What `nrx-launcher-item` means: this element has handed its position to the
-   launcher. genres.css declares `position: fixed; right: 20px; bottom: 20px`
-   on its trigger, written when that corner was exclusively its own; the child
-   combinator here outranks it on specificity, so the override holds whichever
-   order the two stylesheets happen to be injected in. */
+/* What `nrx-launcher-item` means: this element has handed both its position
+   and its appearance to the launcher. genres.css declares `position: fixed;
+   right: 20px; bottom: 20px` on its trigger, written when that corner was
+   exclusively its own, and it still declares the pill's padding, colours and
+   resting opacity; the child combinator here is (0,2,0) against that rule's
+   (0,1,0), so every override below holds whichever order the two stylesheets
+   happen to be injected in.
+
+   --- why this block took over the appearance too ---------------------------
+   Observed in Chrome on a real signed-in Netflix homepage: both pills, sitting
+   at genres.css's resting `opacity: 0.6` over poster artwork, read as stray
+   captions floating on a card rather than as controls. That is not a colour
+   bug that a higher opacity fixes. The background is a poster that changes as
+   the page scrolls, so *any* value that lets the artwork through is legible
+   over some frames and not others, and 0.6 also fades the border and the
+   shadow — the two things that were supposed to say "this is a button".
+
+   So the surface stops depending on what is behind it. `#141414` is fully
+   opaque: the artwork is occluded rather than mixed with, and the worst case
+   equals the best case. #f2f2f2 on it is 16.5:1, and the pill keeps that ratio
+   over a black title card and over a white one alike. The border is a light
+   hairline (rgba(255,255,255,.22) composites to ~#484848 on the surface) and
+   the two-layer shadow lifts the pill off the poster instead of tinting it.
+
+   Restraint is now carried by size and colour rather than by transparency:
+   a small dark pill with 13px type, at the same 20px/20px corner, going one
+   step brighter under the pointer. This sits on top of someone's Netflix and
+   is not allowed to look like a widget that moved in.
+
+   Both pills take this block, so they stay one control set by construction
+   rather than by two files agreeing to copy each other — which is what the
+   old duplicated `.nrx-pick-trigger` appearance block was, and why it is gone.
+   The block therefore has to name every visual property genres.css sets on
+   `.nrx-genre-trigger`, or the categories pill would keep the half of that
+   rule this one forgot to mention. */
 .nrx-launcher > .nrx-launcher-item {
   position: static;
   right: auto;
   bottom: auto;
   z-index: auto;
-  margin: 0;
   white-space: nowrap;
+
+  /* Icon, label and chord on one baseline. The 44px floor is the pointer
+     target, not a look: at genres.css's 7px/13px the pill was ~33px tall,
+     under the 44x44 minimum, and a corner control aimed at with a trackpad or
+     a thumb is exactly the case that minimum exists for. Padding is horizontal
+     only — the height is the floor's job, so the two pills cannot drift out of
+     alignment when one of them wraps a slightly taller glyph. */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 14px;
+
+  /* The button starts from the UA default on every one of these hosts — none
+     of their resets reach an element they never rendered — so appearance,
+     border and font are all talked down explicitly. */
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: #141414;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.65), 0 8px 24px rgba(0, 0, 0, 0.55);
+
+  color: #f2f2f2;
+  font: inherit; /* before font-size: the shorthand would reset it */
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  text-align: left;
+
+  opacity: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* One step brighter, not a different object: same geometry, same type, a
+   lighter rim and a deeper shadow. #f2f2f2 on #232323 is 14.0:1, so the state
+   that gets read the most closely is not the one that got dimmer. */
+.nrx-launcher > .nrx-launcher-item:hover,
+.nrx-launcher > .nrx-launcher-item:focus-visible,
+.nrx-launcher > .nrx-launcher-item[aria-expanded="true"] {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: #232323;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.7), 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.nrx-launcher > .nrx-launcher-item:active {
+  background: #2c2c2c;
+}
+
+/* The same white 2px ring content.css draws on a badge, sort.css on its
+   buttons and genres.css on its trigger — someone tabbing between the four
+   should not have to learn four focus styles. White is the one ring colour
+   that survives being drawn just outside a pill on unknown artwork. */
+.nrx-launcher > .nrx-launcher-item:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* --- the mark ---------------------------------------------------------------
+   Inline SVG built in JS, currentColor, no external asset and no icon font.
+   16px is the largest a mark can be beside 13px type without becoming the
+   thing you read first. `display: block` kills the inline baseline gap that
+   would otherwise push the pill a pixel taller than its sibling. */
+.nrx-launcher-icon {
+  flex: 0 0 auto;
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+/* The label is what shrinks if a pill ever has to, never the icon or the
+   chord — a truncated word is still a control, a missing mark is not. */
+.nrx-launcher-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- the chord --------------------------------------------------------------
+   The shortcut, on the control it belongs to. It was only ever in the
+   accessible name and the tooltip, which is the same as saying it was only
+   available to people who already knew it was there. A keycap chip is the one
+   form that reads as "press this" rather than as more label: it is set apart
+   from the words by its own surface, so the eye can skip it until the second
+   or third visit, which is when it starts to matter.
+
+   #c9c9c9 on the chip (rgba white .10 composites to ~#2b2b2b on #141414) is
+   8.6:1 — quieter than the label, never a thing you have to squint at. */
+.nrx-launcher-key {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+
+  color: #c9c9c9;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+/* A keycap is a lie on a device with no keys, and it is the first thing worth
+   dropping when the corner gets tight. The label and the mark stay. */
+@media (hover: none), (max-width: 520px) {
+  .nrx-launcher-key {
+    display: none;
+  }
+}
+
+/* --- one thing genres.css can no longer get right on its own ----------------
+   `.nrx-genre-panel` is anchored `bottom: 68px`, a number chosen when the
+   corner held one ~33px trigger. It has been wrong since the launcher became
+   a two-pill column and is wronger now that each pill is 44px: the stack is
+   20 + 44 + 8 + 44 = 116px tall, so a panel hung at 68px opens *through* the
+   button that opened it.
+
+   This is the launcher's height, so it is this file's number, and it is fixed
+   here rather than in genres.css because that file is not allowed to know how
+   tall pick.js's pill is. Same child-combinator trick as above:
+   `.nrx-genre-root > .nrx-genre-panel` is (0,2,0) against genres.css's
+   (0,1,0), and genres.js appends the panel straight into that root. 128px is
+   116 plus the 12px of air the panel had over the trigger originally.
+
+   Raising the floor raises the ceiling with it, so the height cap has to be
+   restated or a short window would push the panel off the top instead. The
+   first two terms are genres.css's own cap, unchanged and still winning at
+   every ordinary window height; the third only binds below ~560px of viewport,
+   where the panel now scrolls internally rather than overflowing. */
+.nrx-genre-root > .nrx-genre-panel {
+  bottom: 128px;
+  max-height: min(74vh, 620px, calc(100vh - 148px));
 }
 
 /* Stacking order, fixed in CSS rather than left to append order. Both files
@@ -109,47 +278,22 @@
 .nrx-launcher > [data-launch="pick"]       { order: 2; }
 
 /* --- this file's trigger --------------------------------------------------
-   A deliberate copy of .nrx-genre-trigger's non-positional declarations, not a
-   reuse of the class: this button is not a genre trigger, and borrowing the
-   name would make genres.css — a Netflix-only stylesheet by intent —
-   load-bearing for a button that has to work on Prime. The two sit side by
-   side, so the values below must stay identical to genres.css's; if that pill
-   is ever restyled, this follows it. */
-.nrx-pick-trigger {
-  padding: 7px 13px;
-  border: 1px solid #2f2f2f;
-  border-radius: 999px;
-  background: #181818;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+   There is nothing here any more, and that is the point.
 
-  color: #e5e5e5;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.4;
+   This block used to be a deliberate copy of `.nrx-genre-trigger`'s
+   non-positional declarations — the right call at the time, because borrowing
+   genres.css's class would have made a Netflix-only stylesheet load-bearing
+   for a button that has to work on Prime. But it meant two files each holding
+   half of one control set's appearance with a comment asking them to stay in
+   sync, and the two pills only *looked* like a set for as long as nobody
+   restyled one of them.
 
-  opacity: 0.6;
-  cursor: pointer;
-  transition: opacity 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.nrx-pick-trigger:hover,
-.nrx-pick-trigger:focus-visible,
-.nrx-pick-trigger[aria-expanded="true"] {
-  opacity: 1;
-  border-color: #8c8c8c;
-  background: #262626;
-}
-
-/* The same white 2px ring content.css draws on a badge, sort.css on its
-   buttons and genres.css on its trigger. #e5e5e5 on #181818 is 13.8:1 at rest
-   and the button comes fully opaque the moment it is pointed at or focused,
-   which is the only time it has to be read closely. */
-.nrx-pick-trigger:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
-}
+   Both pills now take their whole appearance from
+   `.nrx-launcher > .nrx-launcher-item` above, which is this file's own
+   contract class rather than genres.css's: no borrowing, no copy, and the
+   Netflix-only stylesheet stays non-load-bearing. `.nrx-pick-trigger` survives
+   as pick.js's handle on its own button — `document.querySelectorAll` sweeps
+   strays by it — not as a style hook. */
 
 /* Scoped rather than global. A site's own `* { box-sizing: content-box }` would
    otherwise reach into a subtree it never rendered and take the padding out of
@@ -574,8 +718,16 @@
   .nrx-pick-go,
   .nrx-pick-again,
   .nrx-pick-show,
-  .nrx-pick-imdb,
-  .nrx-pick-trigger {
+  .nrx-pick-imdb {
+    transition: none;
+  }
+
+  /* Both launcher pills, not just this file's: the shared rule above is what
+     puts a transition on either of them now, so this is the only place that
+     can take it off. Child combinator again, so it also beats the `transition:
+     none` genres.css sets on `.nrx-genre-trigger` — same value, but specificity
+     inside a media query is still specificity. */
+  .nrx-launcher > .nrx-launcher-item {
     transition: none;
   }
 }

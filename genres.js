@@ -372,10 +372,17 @@
   // Video the container is created by pick.js and this function never runs at
   // all. Both directions have to work, so both are just "find it or make it".
   //
-  // The contract is three things and no more:
+  // The contract is four things and no more:
   //   - the container is `.nrx-launcher`;
   //   - an item in it carries `nrx-launcher-item`, which is what takes the item
-  //     out of its own fixed positioning and hands the corner to the container;
+  //     out of its own fixed positioning AND out of its own appearance: the
+  //     pill's surface, size, type, states and 44px hit target all come from
+  //     that one class, so the two buttons are one control set by construction
+  //     rather than by two files agreeing to copy each other;
+  //   - an item's contents are, in order, `.nrx-launcher-icon` (an inline SVG
+  //     mark), `.nrx-launcher-label` (the words) and `.nrx-launcher-key` (the
+  //     keycap chip naming the chord). All three are optional to the layout;
+  //     none of them is optional to a control anyone can find;
   //   - `data-launch` fixes the stacking order, so a re-mount after a Netflix
   //     re-render cannot swap the two buttons round under the user's cursor.
   // It is styled in pick.css, which is the file the launcher arrived with.
@@ -387,6 +394,61 @@
       document.body.appendChild(bar);
     }
     return bar;
+  }
+
+  // The launcher's mark. createElementNS rather than innerHTML because these
+  // sites ship Content-Security-Policy headers and Netflix is one Trusted Types
+  // rollout away from making an innerHTML assignment throw rather than degrade;
+  // building the nodes is a handful of lines and cannot be broken by a header.
+  // No external file (a content script's asset would need web_accessible_
+  // resources), no icon font, and no emoji — an emoji is someone else's
+  // artwork at someone else's weight, and renders differently on every OS the
+  // extension runs on.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgNode(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const name of Object.keys(attrs)) {
+      node.setAttribute(name, String(attrs[name]));
+    }
+    return node;
+  }
+
+  // Four tiles in a 2x2 grid. The mark is the destination rather than a
+  // metaphor for it: every code in this panel opens as a Netflix grid page, and
+  // a grid is also the one shape that cannot be mistaken for a menu, a filter
+  // or a list at 16px.
+  //
+  // Filled, not outlined. A stroked 2x2 renders each tile as a ~4.7px box with
+  // a ~1.3px stroke on it at this size, and the four holes close up into grey
+  // mush; solid tiles with a 2px gutter stay four distinct squares. It is the
+  // heavier of the two marks by ink, which is why the die opposite it is drawn
+  // as an outline with pips rather than as a solid.
+  function gridMark() {
+    const svg = svgNode("svg", {
+      class: "nrx-launcher-icon",
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      fill: "currentColor",
+      // Decorative: the button's accessible name already says what it does, and
+      // an SVG announced beside it would only ever be noise.
+      "aria-hidden": "true",
+      focusable: "false",
+    });
+
+    const corners = [
+      [3, 3],
+      [13.5, 3],
+      [3, 13.5],
+      [13.5, 13.5],
+    ];
+    for (const [x, y] of corners) {
+      svg.appendChild(
+        svgNode("rect", { x, y, width: "7.5", height: "7.5", rx: "2" })
+      );
+    }
+    return svg;
   }
 
   // --- the list -------------------------------------------------------------
@@ -647,26 +709,57 @@
     // corner belongs to this file alone. pick.js has a trigger there too, so
     // the fixed positioning is the launcher's job now, not this button's: it is
     // appended to the shared container by mountTrigger() below and wears
-    // `nrx-launcher-item`, which is what neutralises the position:fixed
-    // genres.css still declares on it. Everything else about how it looks —
-    // the pill, the colours, the resting opacity, the focus ring — is still
-    // genres.css's, unchanged, and pick.js's button copies it so the two read
-    // as one control set.
+    // `nrx-launcher-item`, which is what neutralises the position:fixed — and
+    // now the whole resting appearance — genres.css still declares on it.
     //
-    // Findability is then split between two paths: the corner for the person
-    // who will discover it by looking, and Shift+G for the person who uses it
-    // twice a day and should not have to aim at a corner.
+    // Why the appearance moved: at genres.css's resting opacity this pill was
+    // measured in a real browser sitting over poster artwork and read as a
+    // caption, not a button. Quiet-at-rest was the right instinct for a corner
+    // affordance and the wrong mechanism, because transparency fades the
+    // border and the shadow — the parts that said "control" — along with the
+    // word. pick.css now gives both pills one opaque surface; see the long
+    // comment on `.nrx-launcher > .nrx-launcher-item` there.
+    //
+    // Three things make it a control rather than a word: an opaque pill that
+    // does not care what poster is behind it, a mark, and the chord on a keycap
+    // chip. Findability is then split across three paths — the corner for the
+    // person who discovers it by looking, the mark for the person scanning
+    // rather than reading, and Shift+G for the person who uses it twice a day
+    // and should not have to aim at a corner. The chip is what carries the
+    // third to the first two; before it, the chord existed only in the tooltip
+    // and the accessible name, which is another way of saying it was only
+    // available to people who already knew about it.
     trigger = document.createElement("button");
     trigger.type = "button";
     trigger.className = "nrx-genre-trigger nrx-launcher-item";
     trigger.dataset.launch = "categories";
-    trigger.textContent = "Categories";
     trigger.setAttribute("aria-haspopup", "dialog");
     trigger.setAttribute("aria-expanded", "false");
     trigger.setAttribute("aria-label", "Browse Netflix's hidden categories");
     trigger.setAttribute("aria-keyshortcuts", "Shift+G");
     trigger.title = "Netflix's hidden categories (Shift+G)";
     trigger.addEventListener("click", () => (isOpen ? close() : open()));
+
+    const triggerLabel = document.createElement("span");
+    triggerLabel.className = "nrx-launcher-label";
+    triggerLabel.textContent = "Categories";
+
+    // ⇧ rather than "Shift+", because "Shift+G" beside a word is wider than the
+    // word and turns a pill into a sentence. The spelled-out form is not lost:
+    // it is the title above and the aria-keyshortcuts above, which are the two
+    // places a user who does not recognise the glyph will actually look.
+    //
+    // aria-hidden because that same aria-keyshortcuts already publishes the
+    // chord properly. Without it a screen reader would read the chip as literal
+    // text — "up-pointing arrow, G" — immediately after announcing the real
+    // shortcut, which is noise rather than redundancy. The button's aria-label
+    // means the chip cannot affect the accessible name either way.
+    const triggerKey = document.createElement("kbd");
+    triggerKey.className = "nrx-launcher-key";
+    triggerKey.textContent = "⇧G";
+    triggerKey.setAttribute("aria-hidden", "true");
+
+    trigger.append(gridMark(), triggerLabel, triggerKey);
 
     // A scrim rather than nothing, because focus is genuinely trapped while the
     // panel is open and the page behind it is genuinely inert. Light enough

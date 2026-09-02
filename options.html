@@ -65,7 +65,7 @@
       /* Every genre fits without a scroller at this width, and a scroller
          inside a page that isn't scrolling reads as a bug. */
       .chips { max-height: none; }
-      .summary { margin-bottom: 14px; padding: 11px 13px; }
+      .rail { padding: 0 18px 14px; }
       .subs-stage { height: 156px; }
     }
 
@@ -147,6 +147,9 @@
        card's own rounded border. */
     .card-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
     .card-head[aria-expanded="true"] { border-radius: var(--r-3) var(--r-3) 0 0; }
+    /* The filter rail sits under the header whether or not the card is open, so
+       the header stops rounding into it while it is showing. */
+    .card:has(.rail:not([hidden])) .card-head { border-radius: var(--r-3) var(--r-3) 0 0; }
 
     .card-title { flex: none; }
 
@@ -425,6 +428,9 @@
     .switch input:checked + .toggle::after { transform: translateX(14px); background: #0b0b0b; }
     .switch input:focus-visible + .toggle { outline: 2px solid var(--focus); outline-offset: 2px; }
     .switch b { color: var(--green); font-variant-numeric: tabular-nums; }
+    /* A number that isn't currently dimming anything shouldn't wear the colour
+       that means it is — same rule the narrowing values below follow. */
+    .switch b[data-on="no"] { color: var(--text-3); }
     /* A switch inside a disabled fieldset: the pointer says no, and the label
        stops claiming to be clickable. */
     .switch input:disabled + .toggle { opacity: .45; }
@@ -438,8 +444,31 @@
       font-size: 11.5px; line-height: 1.35; color: var(--text-3);
     }
 
-    .filter-min { transition: opacity .15s ease; }
-    .filter-min[data-off="yes"] { opacity: .4; }
+    /* --- one rule inside the filter card -----------------------------------
+       Every rule that can dim a card now lives in one card, and each is still
+       its own block: a bordered panel whose left edge turns green while that
+       rule is actually doing something. The value on its right says the same
+       thing in words, so the colour is never the only carrier of the state. */
+    .rule {
+      display: flex; flex-direction: column; gap: 9px;
+      padding: 11px 12px;
+      background: #151515;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line);
+      border-radius: var(--r-2);
+      transition: border-color .12s ease;
+    }
+    .rule > * { margin: 0; }
+    .rule[data-on="yes"] { border-left-color: var(--green); }
+
+    /* The switch belongs to the rating rule, not to the card — so inside a
+       rule it drops the panel look and reads as one line of that rule rather
+       than as a master control sitting above three others. */
+    .rule .switch {
+      padding: 0; background: none; border: 0;
+      border-radius: 0; cursor: pointer;
+    }
+    .rule .switch:hover { border-color: transparent; }
 
     /* Shared by every slider on the page — the dim threshold, the runtime
        maximum, the random-pick floor and the three subtitle scales — so they
@@ -456,9 +485,9 @@
       font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums;
     }
 
-    /* --- narrowing filters -------------------------------------------------
-       Three controls in one card, each a labelled block with its value read
-       out on the right, so the card can be scanned down its right edge. */
+    /* --- a labelled control ------------------------------------------------
+       One control, its name on the left and its current value on the right, so
+       any card built out of these can be scanned down its right edge. */
     .ctl { display: flex; flex-direction: column; gap: 6px; }
     /* The card resets margins on its own children only, and these are a level
        deeper — without this a <p> here would keep its default 1em. */
@@ -637,40 +666,106 @@
       font-variant-numeric: tabular-nums; text-transform: uppercase;
     }
 
-    /* --- the active-filter summary -----------------------------------------
-       Five filters is more than anyone will re-read on opening the popup, so
-       the top of the page answers "is anything hidden right now" before the
-       first card. Empty is the resting state and is drawn as one: dashed,
-       unfilled, quiet — nothing to act on. */
-    .summary {
+    /* --- the rail: what is narrowing the page right now ---------------------
+       Between the card's header and its body, so it is legible with the card
+       shut — the whole active set in one line of pills, wherever the four
+       controls that made it happen to be. Absent when nothing is filtering:
+       the header's own value says "Off", and an empty box explaining that it
+       is empty is a row of pixels asking to be read before it can be ignored.
+       Each pill is the button that turns its own rule off, which is the same
+       per-filter clearing the on-page bar offers on Netflix itself. */
+    .rail {
       display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-      margin: 0 0 12px; padding: 9px 11px;
-      border: 1px dashed var(--line-hi); border-radius: var(--r-2);
-      font-size: 12px;
+      padding: 0 14px 12px;
     }
-    .summary[data-active="yes"] {
-      background: var(--card);
-      border-style: solid; border-color: var(--line);
+    .rail .btn { flex: none; min-height: 28px; padding: 0 10px; font-size: 11.5px; }
+
+    .pills {
+      list-style: none; display: flex; flex-wrap: wrap; gap: 5px;
+      flex: 1; min-width: 0; margin: 0; padding: 0;
     }
-    /* Clearing everything removes the button that was clicked, so focus is
-       parked here — where the text has just changed to say what happened. */
-    .summary:focus { outline: none; }
-    .summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-
-    .summary-none { color: var(--text-3); }
-    .summary-body { flex: 1; min-width: 0; }
-
-    .pills { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; }
     .pill {
+      appearance: none;
+      display: inline-flex; align-items: center; gap: 5px;
       padding: 3px 8px; border-radius: 999px;
       background: rgba(229, 160, 13, .12);
       border: 1px solid rgba(229, 160, 13, .38);
       color: var(--amber);
+      font-family: inherit;
       font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
-      white-space: nowrap;
+      white-space: nowrap; cursor: pointer;
+      transition: background-color .12s ease, border-color .12s ease;
+    }
+    .pill:hover { background: rgba(229, 160, 13, .2); border-color: var(--amber); }
+    .pill:active { background: rgba(229, 160, 13, .1); }
+    .pill:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .pill .x { font-size: 12px; line-height: 1; opacity: .75; }
+
+    /* --- the three rating lines ---------------------------------------------
+       Three numbers were each doing part of one job — where a badge turns
+       green, where a card dims, where the randomiser draws from — and no
+       surface ever showed them together, so they could disagree in silence.
+       This is the one place they are read as a set, on the same 0-10 line the
+       colours card cuts into three. */
+    .trio {
+      display: flex; flex-direction: column; gap: 9px;
+      padding: 11px 12px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
+    }
+    .trio > * { margin: 0; }
+    .trio-h {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: .07em; text-transform: uppercase;
+      color: var(--text-3);
     }
 
-    .summary .btn { flex: none; min-height: 28px; padding: 0 10px; font-size: 11.5px; }
+    .trio-scale { position: relative; height: 38px; }
+    .trio-track {
+      position: absolute; top: 16px; left: 0; right: 0; height: 5px;
+      border-radius: 3px; overflow: hidden; background: #262626;
+    }
+    .trio-track span { position: absolute; top: 0; bottom: 0; }
+    .trio-track .low  { background: var(--red); }
+    .trio-track .mid  { background: var(--amber); }
+    .trio-track .high { background: var(--green); }
+
+    /* Two pins on that line: the dim floor above it, the pick floor below, so
+       they stay readable when the two numbers are the same. */
+    .mark {
+      position: absolute; transform: translateX(-50%); padding: 0 2px;
+      font-size: 10px; font-weight: 700; color: var(--text);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .mark::after {
+      content: ""; position: absolute; left: 50%; margin-left: -1px;
+      width: 2px; height: 8px; border-radius: 1px; background: currentColor;
+    }
+    .mark.up { top: 0; }
+    .mark.up::after { top: 13px; }
+    .mark.down { top: 25px; }
+    .mark.down::after { top: -9px; }
+    /* A floor that is set but not currently being applied still has a number,
+       and hiding it would make the set unreadable — so it is greyed instead. */
+    .mark[data-off="yes"] { color: var(--text-3); }
+    .mark[data-off="yes"]::after { opacity: .6; }
+
+    .trio-rows { list-style: none; display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; }
+    .trio-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-2); }
+    .trio-row .k { flex: none; }
+    .trio-row b { flex: none; color: var(--text); font-variant-numeric: tabular-nums; }
+    .trio-row[data-on="no"] b { color: var(--text-3); }
+    .trio-row[data-k="green"] b { color: var(--green); }
+    .trio-row .s {
+      flex: 1; min-width: 0; text-align: right;
+      font-size: 11px; line-height: 1.35; color: var(--text-3);
+    }
+
+    /* Only written when the three actually disagree — and it says which way,
+       because "your pick can land on a card you have already dimmed" is the
+       failure, not the arithmetic. */
+    .trio-clash { font-size: 11.5px; line-height: 1.4; color: var(--amber); }
+    .trio-clash[data-k="ok"] { color: var(--text-3); }
 
 
     /* --- the confirmation toast --------------------------------------------
@@ -712,18 +807,6 @@
     <h1>IMDb Ratings for Netflix</h1>
     <p class="lede">No API key needed — ratings come from IMDb's own published dataset.</p>
   </header>
-
-  <!-- Sits above the cards because it answers the question people arrive with.
-       Not a live region: the sliders repaint it every frame while dragging,
-       and a screen reader would read the whole summary out on each one. -->
-  <section class="summary" id="summary" data-active="no" tabindex="-1"
-           aria-label="Filters in effect">
-    <div class="summary-body">
-      <span class="summary-none" id="summaryNone">No filters — every title shows as normal.</span>
-      <ul class="pills" id="summaryPills" hidden></ul>
-    </div>
-    <button id="clearFilters" type="button" class="btn quiet" hidden>Clear all</button>
-  </section>
 
   <main>
 
@@ -789,48 +872,99 @@
           </div>
         </section>
 
-        <section class="card" data-card="dim" aria-labelledby="h-dim">
-          <h3 class="card-h" id="h-dim">
-            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-dim">
-              <span class="card-title">Dim what I'd skip</span>
-              <span class="card-value" id="v-dim">Off</span>
+        <!-- One card, four rules. They were two cards that did not look related —
+             a rating filter in one, runtime/kind/genre in another — so nothing on
+             this page ever answered "what is narrowing my homepage right now" in
+             one place. Everything that can dim a title is now in this card, and
+             the rail under its header says what is on without opening it. -->
+        <section class="card" data-card="filters" aria-labelledby="h-filters">
+          <h3 class="card-h" id="h-filters">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-filters">
+              <span class="card-title">Filters</span>
+              <span class="card-value" id="v-filters">Off</span>
               <span class="chev" aria-hidden="true"></span>
             </button>
           </h3>
-          <div class="card-body" id="p-dim" hidden>
-            <p class="hint">Pushes low-rated titles into the background, so a row reads as a shortlist.
-              Titles with no rating are never dimmed — no rating isn't a bad rating.</p>
 
-            <label class="switch" for="filterEnabled">
-              <input type="checkbox" id="filterEnabled" role="switch">
-              <span class="toggle" aria-hidden="true"></span>
-              <span>Dim anything below <b id="filterMinLabel">7.5</b></span>
-            </label>
-
-            <div class="filter-min" id="filterMinWrap">
-              <label class="sr-only" for="filterMin">Dim below this rating</label>
-              <!-- Matches the label's printed default, so the two don't disagree for
-                   the frame before the saved value loads. -->
-              <input class="rng" type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
-              <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
-            </div>
+          <!-- Outside the collapsible body on purpose: the active set has to be
+               readable with the card shut. Not a live region — the sliders repaint
+               it every frame while dragging, and a screen reader would read the
+               whole set out on each one. -->
+          <div class="rail" id="filterRail" role="group" aria-label="Filters in effect" hidden>
+            <ul class="pills" id="filterPills"></ul>
+            <button id="clearFilters" type="button" class="btn quiet">Clear all</button>
           </div>
-        </section>
 
-        <section class="card" data-card="narrow" aria-labelledby="h-narrow">
-          <h3 class="card-h" id="h-narrow">
-            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-narrow">
-              <span class="card-title">Narrow it down</span>
-              <span class="card-value" id="v-narrow">Any</span>
-              <span class="chev" aria-hidden="true"></span>
-            </button>
-          </h3>
-          <div class="card-body" id="p-narrow" hidden>
-            <p class="hint">Three more ways to decide what recedes. Anything that fails one of these
-              dims exactly like a low rating does — nothing is removed, and a title with no data
-              is never dimmed by any of them.</p>
+          <div class="card-body" id="p-filters" hidden>
+            <p class="hint">Everything that can push a title into the background. Nothing is ever
+              removed — a filtered card dims — and a title the dataset knows nothing about is
+              never dimmed by any of these. No rating isn't a bad rating.</p>
 
-            <div class="ctl">
+            <div class="rule" id="ruleRating" data-on="no">
+              <label class="switch" for="filterEnabled">
+                <input type="checkbox" id="filterEnabled" role="switch">
+                <span class="toggle" aria-hidden="true"></span>
+                <span class="switch-main">Dim anything below <b id="filterMinLabel" data-on="no">7.5</b>
+                  <small>Moving the slider switches this on. The three rules below have no switch
+                    of their own — each starts working the moment you set it, and stops when you
+                    clear it.</small>
+                </span>
+              </label>
+
+              <div>
+                <label class="sr-only" for="filterMin">Dim below this rating</label>
+                <!-- Matches the label's printed default, so the two don't disagree for
+                     the frame before the saved value loads. -->
+                <input class="rng" type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5"
+                       aria-describedby="filterMinSource">
+                <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
+              </div>
+
+              <!-- Which of the two this number is — the green boundary, or a floor
+                   set here — is written by options.js on every paint, exactly as the
+                   random pick's floor already says. The inherited wording is seeded
+                   because it is the state a new install is in. -->
+              <p class="note" id="filterMinSource">
+                <span id="filterMinSourceText">Following the green boundary from Rating colours —
+                  move the slider to give dimming a floor of its own.</span>
+                <button id="filterMinFollow" type="button" class="linky" hidden>Follow it again</button>
+              </p>
+            </div>
+
+            <div class="trio" id="trio">
+              <p class="trio-h" id="trioHead">Your three rating lines</p>
+              <!-- Decorative: every number on it is spelled out in the rows below. -->
+              <div class="trio-scale" aria-hidden="true">
+                <div class="trio-track">
+                  <span class="low"  id="trioLow"></span>
+                  <span class="mid"  id="trioMid"></span>
+                  <span class="high" id="trioHigh"></span>
+                </div>
+                <span class="mark up"   id="markDim">dim 7.5</span>
+                <span class="mark down" id="markPick">pick 7.5</span>
+              </div>
+              <ul class="trio-rows" aria-labelledby="trioHead">
+                <li class="trio-row" data-k="green">
+                  <span class="k">Green from</span>
+                  <b id="trioGreenValue">7.5</b>
+                  <span class="s"><button type="button" class="linky" data-goto="colours">Rating colours</button></span>
+                </li>
+                <li class="trio-row" data-k="dim" id="trioDimRow">
+                  <span class="k">Dim below</span>
+                  <b id="trioDimValue">7.5</b>
+                  <span class="s" id="trioDimSource">switched off — nothing dims by rating</span>
+                </li>
+                <li class="trio-row" data-k="pick" id="trioPickRow">
+                  <span class="k">Pick from</span>
+                  <b id="trioPickValue">7.5</b>
+                  <span class="s"><span id="trioPickSource">following the green boundary</span> ·
+                    <button type="button" class="linky" data-goto="pick">Pick</button></span>
+                </li>
+              </ul>
+              <p class="trio-clash" id="trioClash" hidden></p>
+            </div>
+
+            <div class="rule" id="ruleRuntime" data-on="no">
               <div class="ctl-head">
                 <label for="filterRuntime">Maximum length</label>
                 <b id="runtimeLabel" data-on="no">Any</b>
@@ -847,7 +981,7 @@
                 episode, not the whole thing, so series are never dimmed by length.</p>
             </div>
 
-            <div class="ctl">
+            <div class="rule" id="ruleKind" data-on="no">
               <div class="ctl-head">
                 <span id="kindLabel">Show only</span>
               </div>
@@ -864,9 +998,11 @@
               </div>
             </div>
 
-            <div class="ctl">
+            <div class="rule" id="ruleGenres" data-on="no">
               <!-- The closed row is this control's heading as well as its trigger:
-                   it reads "Genres … Any" on one line, in step with the two above. -->
+                   it reads "Genres … Any" on one line, in step with the two above.
+                   Whether it is open is remembered, so reaching the chips costs the
+                   one click the first time and none after that. -->
               <div class="disc-row">
                 <button id="genreToggle" type="button" class="disc"
                         aria-expanded="false" aria-controls="genrePanel">
@@ -978,7 +1114,9 @@
                 <button id="pickMinFollow" type="button" class="linky" hidden>Follow it again</button>
               </p>
               <p class="note" id="pickMinNote">If nothing on the page clears this, it says so
-                rather than picking something you'd have skipped.</p>
+                rather than picking something you'd have skipped. This floor and the one that
+                dims cards are two different numbers:
+                <button type="button" class="linky" data-goto="filters">see them together</button>.</p>
             </div>
 
             <div class="ctl">

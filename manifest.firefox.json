@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IMDb Ratings for Netflix",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Shows IMDb ratings on Netflix title cards, colour-coded, with no API key required.",
   "browser_specific_settings": {
     "gecko": {
@@ -35,6 +35,7 @@
         "content.js",
         "sort.js",
         "genres.js",
+        "filters.js",
         "browse.js",
         "pick.js",
         "player.js",
@@ -45,6 +46,7 @@
         "content.css",
         "sort.css",
         "genres.css",
+        "filters.css",
         "browse.css",
         "pick.css",
         "player.css",

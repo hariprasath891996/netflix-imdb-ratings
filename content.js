@@ -940,8 +940,12 @@ function isSeriesType(titleType) {
   return typeof titleType === "string" && titleType.toLowerCase().includes("series");
 }
 
+// Returns the chip it built, or null when the row already carries one. The
+// detail-page path below reuses this whole function rather than writing a
+// second chip builder: two builders would be two places to word "still
+// running", and the point of runStatusFor() was that there is only one.
 function renderModalChip(meta, result) {
-  if (meta.querySelector(".nrx-chip")) return;
+  if (meta.querySelector(".nrx-chip")) return null;
 
   const chip = document.createElement("span");
   chip.className = "nrx-chip";
@@ -989,6 +993,7 @@ function renderModalChip(meta, result) {
   }
 
   meta.insertBefore(chip, meta.firstChild);
+  return chip;
 }
 
 // Netflix rebuilds the preview modal as the pointer crosses a row, and reuses
@@ -1029,6 +1034,358 @@ async function processModal(meta) {
 
   renderModalChip(meta, result);
 
+}
+
+// --- the detail page ------------------------------------------------------
+// /title/<id> is where someone actually decides whether to watch, and it was
+// the one surface saying nothing: the row badges live on browse, and the chip
+// declines here by design (see titleFromModal above). This puts one rating back
+// on it.
+//
+// THE RULE THAT MUST NOT COME BACK, and the reason this file will not tolerate
+// a "simplification" here. The 25-identical-chips incident was not caused by
+// reading an image; it was caused by resolving a *name* from an unscoped
+// `document.querySelector` for an element that dozens of unrelated rows on the
+// same page could equally match, so every one of them got the first one's
+// answer. Everything below therefore takes its name from document-level
+// metadata only — `document.title`, and Open Graph tags read out of
+// `document.head` — because those describe the document as a whole, there is
+// exactly one of each, and no row can be mistaken for one. No element in the
+// body is ever asked what this page is about. Reading the hero's artwork alt,
+// its <h1>, or the nearest title-looking node would be the incident rewritten
+// in a smaller costume: each of those is a shape the page repeats, and being
+// "the first" of them is not the same fact as being this page's subject.
+//
+// The DOM is consulted for exactly one thing — *where* to put the answer — and
+// that lookup is never allowed to influence *what* the answer is about.
+
+// Signed in the path is /title/<id>; signed out, or on a regional entry point,
+// Netflix prefixes a locale ("/in/title/...", "/in-en/title/..."). The id is
+// captured because every piece of state below is keyed to it: it is the only
+// identifier on this surface that changes the instant the subject does.
+const DETAIL_PATH = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?title\/(\d+)/i;
+
+// Observed live: the tab read "Our Sticky Love - Netflix" on /title/82048302.
+// The suffix is required rather than merely stripped, and that is the whole
+// safety of using document.title: it is what lets us tell "Netflix has set this
+// to a title's name" from "this is some other string that happens to be in the
+// tab". If Netflix ever stops appending it we resolve nothing and this surface
+// goes quiet again, which is the correct failure. The signed-out pages have
+// historically used "| Netflix Official Site"; it is accepted for the same
+// reason, since it is equally a statement about the whole document.
+const DETAIL_TITLE_SUFFIX = /\s*[-\u2010-\u2015|]\s*Netflix(\s+Official\s+Site)?\s*$/i;
+
+// Netflix's own page names, which arrive in exactly the same place a title's
+// name does — most often for the half-second after a client-side navigation,
+// before the tab title catches up with the URL. Refusing them costs a rating on
+// the rare film actually called "Home"; accepting one would put the browse
+// page's name on a title page, which is the failure this whole block exists to
+// avoid. The asymmetry is the point.
+const DETAIL_SITE_TITLES = new Set([
+  "netflix", "home", "browse", "search", "my list", "new & popular", "latest"
+]);
+
+// How far down the document the metadata row may sit and still be the hero's.
+// Netflix sizes the detail hero against the viewport, so its metadata line is
+// above the fold at any window height; the episode list and "More Like This"
+// are below it by a screenful or more. A quarter of a screen of slack absorbs
+// a short window without ever reaching them. Anything failing this is not
+// declared "probably still the hero" — it is declined.
+const HERO_BAND = 1.25;
+
+// A client-side navigation changes the URL before it changes the tab title, so
+// the passes just after one legitimately see a name that is not this page's
+// yet. These bound that wait, and it is bounded in time rather than in
+// attempts: how often we are asked depends on how much Netflix happens to be
+// mutating, and a budget spent by page churn would give a slow route less grace
+// than a quiet one. Four seconds, then silence rather than a name we cannot
+// vouch for.
+const DETAIL_TITLE_WINDOW = 4000;
+const DETAIL_RETRY_DELAY = 300;
+
+const IS_NETFLIX = platform === PLATFORMS.netflix;
+
+function detailId() {
+  if (!IS_NETFLIX || !MODAL_META) return null;
+  const match = DETAIL_PATH.exec(location.pathname);
+  return match ? match[1] : null;
+}
+
+// Everything about the current /title/ id. Reset wholesale when the id changes,
+// so there is no field that can survive a navigation and describe the title
+// before it — the same reasoning as markBestInRow() recomputing a row from
+// scratch instead of amending it.
+let detailState = { id: null, state: "idle", since: 0, result: null, chip: null, pass: 0 };
+let detailPass = 0;
+let detailRetry = null;
+
+// Scoped to <head> rather than the document, because the rule at the top of
+// this block is not "prefer metadata", it is "never ask the body". A rogue
+// <meta> in the body is not a thing Netflix does, and this is what keeps the
+// promise true regardless.
+function ogContent(property) {
+  const tag = document.head && document.head.querySelector(`meta[property="${property}"]`);
+  const content = tag && tag.getAttribute("content");
+  return content && content.trim() ? content.trim() : null;
+}
+
+// og:title is the second source, and it is only usable when og:url names the id
+// we are actually on. That check is doing real work: in a single-page app the
+// Open Graph tags are whatever the initial server render wrote and they do not
+// follow client-side navigation, so an unchecked og:title is a stale name
+// waiting to be stamped on the wrong title. Pinned to the id, it is the one
+// source that can *prove* which subject it describes.
+function ogTitleFor(id) {
+  const url = ogContent("og:url");
+  if (!url) return null;
+  const match = /\/title\/(\d+)/.exec(url);
+  if (!match || match[1] !== id) return null;
+
+  const raw = ogContent("og:title");
+  if (!raw) return null;
+  const name = clean(raw.replace(DETAIL_TITLE_SUFFIX, ""));
+  return name && !DETAIL_SITE_TITLES.has(name.toLowerCase()) ? name : null;
+}
+
+function titleFromTab() {
+  const raw = document.title || "";
+  if (!DETAIL_TITLE_SUFFIX.test(raw)) return null;
+  const name = clean(raw.replace(DETAIL_TITLE_SUFFIX, ""));
+  if (!name || DETAIL_SITE_TITLES.has(name.toLowerCase())) return null;
+  return name;
+}
+
+// Which id the tab title is *about*. This is the whole answer to the stale
+// problem, and it is a fact rather than a guess: Netflix pushes the new URL
+// first and renames the tab when the new route renders, so for a window after
+// every client-side navigation document.title still reads the title you came
+// from. Rendering on it would carry the previous title's rating onto this one —
+// the original bug, arriving by a different road.
+//
+// So the name is not judged by what it says; it is judged by when it was set.
+// A change in document.title belongs to whatever id was in the URL at the
+// moment we noticed the change, and only a name owned by the id we are
+// rendering for is usable. The seed is the script's own injection: a content
+// script runs once per page load, after the URL is settled, so the title
+// standing at that moment does belong to the loaded route.
+//
+// Text comparison, not an observer, because that is what makes the rule
+// airtight in the case that matters: a title Netflix has not rewritten yet is
+// *identical*, so it is not a change, so ownership does not move, so we decline
+// and come back. It also means a genuine rename to the same string — two ids
+// sharing a name, navigated between in one session — is invisible to us, and
+// that title gets nothing. Silence on a real coincidence is the price of never
+// stamping the last title's rating on this one.
+let tabTitleText = document.title;
+let tabTitleOwner = detailId();
+
+function noteTabTitle() {
+  if (document.title === tabTitleText) return;
+  tabTitleText = document.title;
+  tabTitleOwner = detailId();
+
+  // A name that arrives after we have given up is the very thing we gave up
+  // waiting for. Re-arming here rather than staying silent for the rest of the
+  // visit is safe precisely because ownership moved: this name was set while
+  // this id was in the URL.
+  if (tabTitleOwner && tabTitleOwner === detailState.id && detailState.state === "declined") {
+    detailState.state = "idle";
+    detailState.since = Date.now();
+  }
+}
+
+function detailTitle(id) {
+  // og:url can prove ownership outright, which the tab title can only infer, so
+  // it is asked first — and it is the one source that still works on a fresh
+  // load whose tab title has not been written yet.
+  const confirmed = ogTitleFor(id);
+  if (confirmed) return confirmed;
+
+  if (tabTitleOwner !== id) return null;
+  return titleFromTab();
+}
+
+// Where the answer goes. Netflix builds the hero's "2019 · 9 Seasons · HD" line
+// from the same component as the preview modal's, so the chip lands in a row
+// that already reads like it belongs there and needs nothing from content.css
+// that the modal chip did not already need.
+//
+// The two paths partition these rows by one question, asked in opposite
+// directions: titleFromModal() takes the rows *inside* a previewModal, because
+// a modal is one title and its artwork names it; this takes the first row that
+// is in no modal at all, because on a detail page that is the page's own. No
+// row can be claimed by both, so nothing is ever chipped twice — and a hover
+// preview floating over a detail page cannot steal the hero's place.
+//
+// First, or nothing. Searching further down for a row that fits would be a
+// search for an episode: on this page every row after the hero belongs to an
+// episode or to "More Like This", and a rating pinned to one of those is a
+// rating about the wrong thing.
+function heroMeta() {
+  for (const meta of document.querySelectorAll(MODAL_META)) {
+    if (meta.closest('[class*="previewModal"]')) continue;
+
+    const box = meta.getBoundingClientRect();
+    if (!box.width) return null; // not laid out yet: nothing to judge, try later
+    return box.top + window.scrollY <= window.innerHeight * HERO_BAND ? meta : null;
+  }
+  return null;
+}
+
+// The hero row states a year where a browse card does not — "2019 · 9 Seasons ·
+// HD" — and background.js built its year hint for exactly this text: 43% of the
+// titles on a real homepage share a name with something else on IMDb, and the
+// year is what separates them. Only a single year is forwarded, because a row
+// reading "2019 - 2024" is naming a range and neither end is the answer; a
+// wrong hint is worse than none, so ambiguity sends nothing.
+function detailHint(meta) {
+  const hint = hintFromModalMeta(meta) || {};
+  const years = (meta.textContent || "").match(/\b(?:19|20)\d{2}\b/g);
+  if (years && years.length === 1) hint.year = Number(years[0]);
+  return hint.kind || hint.year ? hint : null;
+}
+
+// One rating, one element, and the removal is by query rather than by the
+// stored reference: the reference is what we *think* is on the page, and after
+// one of Netflix's rebuilds the two can differ. Asking the document is what
+// makes "never twice, never left behind" a fact rather than an intention.
+function clearDetailChip() {
+  for (const chip of document.querySelectorAll(".nrx-chip[data-nrx-detail]")) chip.remove();
+  detailState.chip = null;
+}
+
+function resetDetail(id) {
+  clearTimeout(detailRetry);
+  detailRetry = null;
+  clearDetailChip();
+  detailState = { id, state: "idle", since: Date.now(), result: null, chip: null, pass: 0 };
+}
+
+// The timer exists for the tab title above all: document.title changing fires
+// no mutation on <body>, so nothing else would ever come back to look. A
+// missing or not-yet-laid-out hero row needs no timer at all — the page
+// observer calls again when Netflix builds one, and a page that never builds
+// one simply never gets a chip.
+//
+// Only the title wait is bounded, because only it can go on being wrong
+// quietly. The first-run dataset import is unbounded and slow-polled instead:
+// it ends for a reason of its own, on the same 5s cadence the card path uses,
+// and holding it to the title's four seconds would leave a detail page opened
+// during the import permanently silent afterwards.
+const DETAIL_IMPORT_DELAY = 5000;
+
+function retryDetail(options = {}) {
+  if (!options.unbounded && Date.now() - detailState.since > DETAIL_TITLE_WINDOW) {
+    detailState.state = "declined";
+    return;
+  }
+
+  if (detailRetry) return;
+  detailRetry = setTimeout(() => {
+    detailRetry = null;
+    syncDetail();
+  }, options.delay || DETAIL_RETRY_DELAY);
+}
+
+function placeDetailChip(meta, result) {
+  clearDetailChip();
+  const chip = renderModalChip(meta, result);
+  if (!chip) return; // the row already carries someone else's chip
+  chip.dataset.nrxDetail = "1";
+  detailState.chip = chip;
+}
+
+async function syncDetail() {
+  // First, and on every pass including the ones that go on to do nothing: this
+  // is what keeps track of which title the tab name belongs to, and it has to
+  // see a rename whether or not we were in a position to use it.
+  noteTabTitle();
+
+  const id = detailId();
+  if (id !== detailState.id) resetDetail(id);
+  if (!id) return; // not a detail page — and the reset above already cleared up
+
+  if (detailState.state === "declined" || detailState.state === "pending") return;
+  if (detailState.chip && detailState.chip.isConnected) return;
+
+  const meta = heroMeta();
+  if (!meta) return;
+
+  // A chip torn out by one of Netflix's rebuilds is put back from what the
+  // worker already said, rather than asked again: the answer cannot have
+  // changed, and the id it belongs to is checked above.
+  if (detailState.result) {
+    placeDetailChip(meta, detailState.result);
+    return;
+  }
+
+  // THE CALL SITE THE INCIDENT WAS ABOUT. `meta` is in hand here and it is the
+  // hero's own row — and it is still not asked what this page is called.
+  // detailTitle() reads document.title and the <head> tags and nothing else, on
+  // purpose: the 25-identical-chips bug (see titleFromModal above) came from
+  // resolving a name out of the page's body, where "the first one" is not the
+  // same fact as "this page's". Reading the row's artwork, its <h1> or the hero
+  // treatment from here would be that bug again with a shorter selector — the
+  // row is where the answer goes, never where it comes from.
+  //
+  // A null here is a title we cannot vouch for, most often a tab name that
+  // belongs to the title we navigated from. Nothing is rendered and nothing is
+  // asked of the worker.
+  const title = detailTitle(id);
+  if (!title) {
+    retryDetail();
+    return;
+  }
+
+  // Read before anything of ours is in the row, so the hint comes from
+  // Netflix's own text and never from the chip we are about to add.
+  const hint = detailHint(meta);
+
+  const pass = ++detailPass;
+  detailState.pass = pass;
+  detailState.state = "pending";
+
+  const lookup = { type: "lookup", title };
+  if (hint) lookup.hint = hint;
+
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage(lookup);
+  } catch (e) {
+    // Orphaned script, same as the card path: nothing useful to do.
+    detailState.state = "idle";
+    return;
+  }
+
+  // Navigated, or superseded by a later pass, while the worker was thinking.
+  // Painting now would put this title's rating on whatever is on screen instead.
+  if (detailState.pass !== pass || detailState.id !== id || detailId() !== id) return;
+
+  if (!result) {
+    detailState.state = "declined";
+    return;
+  }
+
+  if (result.error) {
+    // "importing" on first run: released rather than declined, and polled back
+    // slowly until the dataset lands.
+    detailState.state = "idle";
+    retryDetail({ unbounded: true, delay: DETAIL_IMPORT_DELAY });
+    return;
+  }
+
+  // A resolved title with no rating is a real answer — IMDb has the title and
+  // no score — and it is stated for the same reason the card badge draws its
+  // grey dash: this page said nothing before, and "we looked, there is nothing"
+  // is information where silence reads as broken. Silence is reserved for the
+  // case that earns it, which is not knowing what this page is about.
+  detailState.result = result;
+  detailState.state = "done";
+
+  // Re-found rather than reused: the await gave Netflix time to rebuild the
+  // hero, and the row captured before it may no longer be in the document.
+  const target = heroMeta();
+  if (target) placeDetailChip(target, detailState.result);
 }
 
 // --- the lookup pipeline --------------------------------------------------
@@ -1107,6 +1464,13 @@ function scan(root = document) {
   if (MODAL_META) {
     for (const meta of root.querySelectorAll(MODAL_META)) processModal(meta);
   }
+
+  // After the modal pass, because the two share these rows and the modal's
+  // claim is the narrower one: a row inside a preview names its own title, and
+  // syncDetail() takes only what is left. It reads the whole document rather
+  // than `root` — there is one subject per page, and which subtree happened to
+  // mutate says nothing about it.
+  syncDetail();
 }
 
 // Netflix adds cards in bursts; debounce so a burst is one scan, not fifty.
@@ -1117,6 +1481,13 @@ const pageObserver = new MutationObserver(() => {
 });
 
 pageObserver.observe(document.body, { childList: true, subtree: true });
+
+// Netflix navigates client-side, so a Back out of a title changes the URL and
+// may touch nothing the observer above can see — which would leave the previous
+// title's rating sitting on the page. Same guard browse.js, player.js and
+// pick.js all keep for the same reason. Undebounced on purpose: a rating that
+// no longer describes what is on screen should go now, not in 250ms.
+addEventListener("popstate", syncDetail);
 
 // Settings are read in one place, on both paths, because a stored value is
 // whatever the last version of the options page happened to write — and a

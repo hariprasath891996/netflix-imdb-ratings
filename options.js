@@ -22,6 +22,56 @@ async function ask(message) {
   }
 }
 
+function isNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+// --- writing to storage ----------------------------------------------------
+// This page is no longer the only writer of the filter keys: the bar on the
+// Netflix page changes the same five while this tab sits open beside it, and
+// the listener at the bottom of this file adopts what it does. That listener
+// has to tell somebody else's change from the echo of our own, or every drag
+// of a slider would be fought by a repaint of the value just written. So every
+// write goes through here and is recorded first.
+const echoes = new Map();
+
+function noteWrite(patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    const list = echoes.get(key) || [];
+    // Serialised because filterGenres is an array, and undefined (a removed
+    // key) has to survive the round trip as a distinguishable value.
+    list.push(JSON.stringify(value ?? null));
+    // Bounded: a write whose change event never arrives would otherwise leave
+    // an entry that could one day swallow somebody else's identical value.
+    if (list.length > 16) list.shift();
+    echoes.set(key, list);
+  }
+}
+
+function writeStore(patch) {
+  noteWrite(patch);
+  return chrome.storage.local.set(patch);
+}
+
+function removeStore(keys) {
+  const list = Array.isArray(keys) ? keys : [keys];
+  noteWrite(Object.fromEntries(list.map((key) => [key, undefined])));
+  return chrome.storage.local.remove(list);
+}
+
+// Changes arrive in the order they were written, so a change matching anything
+// still queued is ours, and everything queued ahead of it has been superseded.
+// A value we never wrote is somebody else's — and in the one case where the two
+// coincide, adopting it is a no-op anyway.
+function isOwnEcho(key, value) {
+  const list = echoes.get(key);
+  if (!list || !list.length) return false;
+  const index = list.indexOf(JSON.stringify(value ?? null));
+  if (index === -1) return false;
+  list.splice(0, index + 1);
+  return true;
+}
+
 // --- ratings dataset ------------------------------------------------------
 const refreshButton = document.getElementById("refresh");
 
@@ -178,9 +228,15 @@ function paintScale() {
   retierCandidates();
   // The closed card carries these two numbers as its value.
   paintCardValues();
+  // Two floors are drawn against this boundary in the filter card, and one of
+  // them is this boundary — so the read-out moves with the handle.
+  paintTrio();
   // A random-pick floor that has never been set is this boundary, not a copy of
-  // it taken at load, so moving the handle moves that card's number too.
+  // it taken at load, so moving the handle moves that card's number too. The
+  // dim floor follows the same way, and — unlike the pick's — has to be written
+  // as it moves; see syncFilterMinFromTier().
   syncPickMinFromTier();
+  syncFilterMinFromTier();
 }
 
 // Persisting on every pointermove would write to storage dozens of times a
@@ -196,7 +252,7 @@ function save() {
   savePending = true;
   requestAnimationFrame(async () => {
     savePending = false;
-    await chrome.storage.local.set({ tierHigh, tierMid });
+    await writeStore({ tierHigh, tierMid });
   });
 }
 
@@ -285,59 +341,207 @@ document.getElementById("resetTiers").addEventListener("click", async () => {
   // Written below, so the stored boundary is the default rather than absent.
   storedTierHigh = tierHigh;
   paintScale();
-  await chrome.storage.local.set({ tierHigh, tierMid });
+  await writeStore({ tierHigh, tierMid });
   say("Back to defaults.");
 });
 
-// --- the dim filter -------------------------------------------------------
+// --- the rating rule ------------------------------------------------------
 // Badges inform; this decides. Off by default, because an extension that
 // starts by hiding half of someone's homepage has overstepped.
+//
+// It is the first of the four rules in the filter card, and the only one with
+// a switch. That is not a design choice this page is free to make: content.js
+// gates *only* failsRating() on filterEnabled, while runtime, kind and genre
+// apply whenever they are set. Grouping the four in one card makes that
+// asymmetry more visible, not less, so the card states it rather than hiding
+// it — the switch sits inside the rating rule's own block, never above the
+// other three, and its own second line says the others have none.
 
 const filterEnabled = document.getElementById("filterEnabled");
 const filterMin = document.getElementById("filterMin");
-const filterMinWrap = document.getElementById("filterMinWrap");
 const filterMinLabel = document.getElementById("filterMinLabel");
+const filterMinSourceText = document.getElementById("filterMinSourceText");
+const filterMinFollow = document.getElementById("filterMinFollow");
+const ruleRating = document.getElementById("ruleRating");
+
+const FILTER_MIN_RANGE = { min: 0, max: 10, step: 0.1 };
+
+// --- where the dim floor comes from ----------------------------------------
+// pickMinRating inherits tierHigh when it has none of its own, and pick.js
+// resolves that inheritance itself: an absent key there means "follow the
+// stored boundary". filterMin cannot work that way, because content.js's
+// normaliseFilter() resolves an absent filterMin to FILTER_DEFAULTS.filterMin —
+// a constant — and not to the user's stored tierHigh. Leaving the key empty
+// would therefore mean this card promising 8.2 while Netflix dimmed at 7.5,
+// which is the exact class of bug this rework exists to end.
+//
+// So the inheritance is kept by *writing* the boundary into filterMin every
+// time it moves. Storage always holds the literal number content.js will dim
+// by; the fact that the number is being followed rather than chosen is this
+// browser's own note, kept in localStorage beside the open-card set, because it
+// is not a setting and no content script reads it.
+const FILTER_FALLBACK_MIN = isNumber(FILTER_DEFAULTS.filterMin)
+  ? FILTER_DEFAULTS.filterMin
+  : RAG_DEFAULTS.tierHigh;
+
+const FOLLOW_KEY = "nrx.dimFollowsGreen";
+
+// null when nothing has been recorded — a first run, or an install from before
+// the floor could follow anything.
+function readFollowFlag() {
+  try {
+    const raw = localStorage.getItem(FOLLOW_KEY);
+    return raw === null ? null : raw === "1";
+  } catch {
+    return null;
+  }
+}
+
+function rememberFollowFlag(on) {
+  try {
+    localStorage.setItem(FOLLOW_KEY, on ? "1" : "0");
+  } catch {
+    // Not remembering costs the user one drag, which beats a broken page.
+  }
+}
+
+let filterMinInherited = false;
+
+// The same two steps pick.js takes after its own key: the stored boundary, then
+// the shipped default. storedTierHigh is the band control's, and is undefined
+// only until storage has been read.
+function inheritedFilterMin() {
+  return isNumber(storedTierHigh) ? storedTierHigh : FILTER_FALLBACK_MIN;
+}
+
+function currentFilterMin() {
+  const value = Number(filterMin.value);
+  return Number.isFinite(value) ? value : FILTER_FALLBACK_MIN;
+}
+
+// Dragging a range input fires continuously and every write is a live repaint
+// on Netflix, so writes are coalesced into one per frame — same bargain the
+// band control makes.
+let filterSavePending = false;
+function saveFilterMinSoon() {
+  if (filterSavePending) return;
+  filterSavePending = true;
+  requestAnimationFrame(async () => {
+    filterSavePending = false;
+    await writeStore({ filterMin: currentFilterMin() });
+  });
+}
 
 function paintFilter() {
-  filterMinLabel.textContent = parseFloat(filterMin.value).toFixed(1);
-  // The threshold is meaningless while the filter is off, so it reads as
-  // inactive rather than sitting there looking adjustable. Disabled rather
-  // than merely dimmed: the old pointer-events:none stopped the mouse but
-  // still let a keyboard tab into a control that looked switched off.
-  filterMinWrap.dataset.off = filterEnabled.checked ? "no" : "yes";
-  filterMin.disabled = !filterEnabled.checked;
-  // This filter is one of the five the summary at the top speaks for, so every
-  // repaint of it is a repaint of that. Declared below; hoisted, and nothing
-  // here runs before the script has finished parsing.
+  const value = currentFilterMin();
+  const on = filterEnabled.checked;
+
+  filterMinLabel.textContent = value.toFixed(1);
+  filterMinLabel.dataset.on = on ? "yes" : "no";
+  // A raw "7.5" read out of a 0-10 slider says nothing about which direction
+  // is stricter.
+  filterMin.setAttribute("aria-valuetext",
+    value === 0 ? "Nothing dimmed by rating" : `Dim anything below ${value.toFixed(1)}`);
+  ruleRating.dataset.on = on ? "yes" : "no";
+
+  // Which of the two this number is — the green boundary, or a floor chosen
+  // here — in the same words the pick card uses, because it is the same fact.
+  filterMinSourceText.textContent = filterMinInherited
+    ? "Following the green boundary from Rating colours — move the slider to give dimming a floor of its own."
+    : "Dimming's own floor, set here. It no longer follows the green boundary.";
+  filterMinFollow.hidden = filterMinInherited;
+
+  // This rule is one of the four the rail speaks for, so every repaint of it is
+  // a repaint of that. Declared below; hoisted, and nothing here runs before
+  // the script has finished parsing.
   paintSummary();
 }
 
 filterEnabled.addEventListener("change", async () => {
   paintFilter();
-  await chrome.storage.local.set({ filterEnabled: filterEnabled.checked });
+  await writeStore({ filterEnabled: filterEnabled.checked });
   say(filterEnabled.checked ? "Dimming on." : "Dimming off.");
 });
 
-// Same one-write-per-frame coalescing as the band control: dragging a range
-// input fires continuously, and every write is a live repaint on Netflix.
-let filterSavePending = false;
+// The slider stays live while the rule is off, and moving it switches the rule
+// on. Reaching for the floor *is* the act of wanting the rule, and making that
+// cost a click on a switch first — then a drag — was one intention charged
+// twice. There is no faded-but-clickable control left here to be dishonest
+// about: the slider is either the thing that arms the rule or the thing that
+// moves it, and it is never disabled.
 filterMin.addEventListener("input", () => {
+  // A hand on this slider ends the inheritance: from here dimming has a floor
+  // of its own and the green boundary can move without taking it along.
+  filterMinInherited = false;
+  rememberFollowFlag(false);
+
+  const arming = !filterEnabled.checked;
+  if (arming) filterEnabled.checked = true;
   paintFilter();
-  if (filterSavePending) return;
-  filterSavePending = true;
-  requestAnimationFrame(async () => {
-    filterSavePending = false;
-    await chrome.storage.local.set({ filterMin: parseFloat(filterMin.value) });
-  });
+
+  if (arming) {
+    // One write rather than two: the open Netflix tab repaints once.
+    writeStore({ filterEnabled: true, filterMin: currentFilterMin() });
+    say("Dimming on.");
+  } else {
+    saveFilterMinSoon();
+  }
 });
 
-async function loadFilter() {
-  const saved = await chrome.storage.local.get(["filterEnabled", "filterMin"]);
-  filterEnabled.checked = typeof saved.filterEnabled === "boolean"
-    ? saved.filterEnabled : FILTER_DEFAULTS.filterEnabled;
-  filterMin.value = typeof saved.filterMin === "number"
-    ? saved.filterMin : FILTER_DEFAULTS.filterMin;
+// The way back, exactly as the pick card offers it — except that here it has to
+// write the boundary rather than delete the key, because an absent filterMin is
+// a constant to content.js and not a boundary to follow.
+filterMinFollow.addEventListener("click", async () => {
+  filterMinInherited = true;
+  rememberFollowFlag(true);
+  filterMin.value = String(inheritedFilterMin());
   paintFilter();
+  await writeStore({ filterMin: currentFilterMin() });
+  say("Following the green boundary again.");
+  // The button has just hidden itself, so focus moves to the slider it governs
+  // rather than being dropped at the top of the page.
+  filterMin.focus();
+});
+
+// Called from paintScale() whenever a boundary moves. Unlike the pick's, this
+// one writes: the number in storage has to stay the number content.js dims by.
+function syncFilterMinFromTier() {
+  if (!filterMinInherited) return;
+  const value = inheritedFilterMin();
+  if (currentFilterMin() === value) return;
+  filterMin.value = String(value);
+  saveFilterMinSoon();
+  paintFilter();
+}
+
+async function loadFilter() {
+  const saved = await chrome.storage.local.get(["filterEnabled", "filterMin", "tierHigh"]);
+  storedTierHigh = saved.tierHigh;
+
+  filterEnabled.checked = boolOr(saved.filterEnabled, FILTER_DEFAULTS.filterEnabled);
+
+  // With nothing recorded, a floor already in storage was chosen by that user
+  // on an older build and stays theirs; only a genuinely unset one starts out
+  // following the boundary. That is also the state defaults.js describes, where
+  // filterMin is anchored to tierHigh rather than to a number of its own.
+  const flag = readFollowFlag();
+  filterMinInherited = flag === null ? !isNumber(saved.filterMin) : flag;
+  if (flag === null) rememberFollowFlag(filterMinInherited);
+
+  filterMin.value = String(filterMinInherited
+    ? inheritedFilterMin()
+    : numberIn(saved.filterMin, FILTER_MIN_RANGE, FILTER_FALLBACK_MIN));
+  paintFilter();
+
+  // The same repair pass the other two loads run. content.js reads this key
+  // literally, so whenever the number on screen isn't the number it would use —
+  // a floor off the scale, junk under the key, or a boundary this page is
+  // following that storage hasn't caught up with — storage is corrected rather
+  // than left dimming by something nobody can see. In the ordinary case the two
+  // already agree and nothing is written.
+  const shown = currentFilterMin();
+  const wouldUse = isNumber(saved.filterMin) ? saved.filterMin : FILTER_FALLBACK_MIN;
+  if (shown !== wouldUse) await writeStore({ filterMin: shown });
 }
 loadFilter();
 
@@ -378,6 +582,9 @@ const GENRES = [
 
 const filterRuntime = document.getElementById("filterRuntime");
 const runtimeLabel = document.getElementById("runtimeLabel");
+const ruleRuntime = document.getElementById("ruleRuntime");
+const ruleKind = document.getElementById("ruleKind");
+const ruleGenres = document.getElementById("ruleGenres");
 const kindRadios = [...document.querySelectorAll('input[name="filterKinds"]')];
 const genreToggle = document.getElementById("genreToggle");
 const genreValue = document.getElementById("genreValue");
@@ -424,6 +631,14 @@ function paintRuntime() {
   // count is the wrong unit to hear read out either way.
   filterRuntime.setAttribute("aria-valuetext",
     minutes === null ? "Any length" : `${formatRuntime(minutes)} or shorter`);
+  ruleRuntime.dataset.on = minutes === null ? "no" : "yes";
+  paintSummary();
+}
+
+// The segmented control shows its own answer, so this rule has no value to
+// print — only the block's own on/off edge, and the rail.
+function paintKind() {
+  ruleKind.dataset.on = currentKind() === "all" ? "no" : "yes";
   paintSummary();
 }
 
@@ -442,6 +657,7 @@ function paintGenres() {
   genreToggle.title = chosen.length > 2 ? chosen.join(", ") : "";
   // Clearing has to be reachable from the closed row, or it costs two actions.
   genreClear.hidden = chosen.length === 0;
+  ruleGenres.dataset.on = chosen.length ? "yes" : "no";
   paintSummary();
 }
 
@@ -454,7 +670,7 @@ filterRuntime.addEventListener("input", () => {
   runtimeSavePending = true;
   requestAnimationFrame(async () => {
     runtimeSavePending = false;
-    await chrome.storage.local.set({ filterRuntimeMax: runtimeValue() });
+    await writeStore({ filterRuntimeMax: runtimeValue() });
   });
 });
 
@@ -464,8 +680,8 @@ for (const radio of kindRadios) {
     // than assumed, because loadNarrow() and Clear all both set .checked
     // directly and a listener that trusted the event alone would be fragile.
     if (!radio.checked) return;
-    paintSummary();
-    await chrome.storage.local.set({ filterKinds: radio.value });
+    paintKind();
+    await writeStore({ filterKinds: radio.value });
     say(radio.value === "all" ? "Showing everything."
       : radio.value === "movies" ? "Films only." : "Series only.");
   });
@@ -484,10 +700,21 @@ function buildGenreChips() {
 }
 buildGenreChips();
 
+// Whether the chips are showing is remembered with the open cards — same
+// gesture, same kind of fact about this window rather than about the settings.
+// Without it, every visit to the genre list costs the same click again.
+// setGenrePanel() is called once the open set exists; see the cards section.
+function setGenrePanel(open) {
+  genreToggle.setAttribute("aria-expanded", String(open));
+  genrePanel.hidden = !open;
+}
+
 genreToggle.addEventListener("click", () => {
-  const open = genreToggle.getAttribute("aria-expanded") === "true";
-  genreToggle.setAttribute("aria-expanded", String(!open));
-  genrePanel.hidden = open;
+  const open = genreToggle.getAttribute("aria-expanded") !== "true";
+  setGenrePanel(open);
+  if (open) openCards.add("genres");
+  else openCards.delete("genres");
+  rememberOpenCards();
 });
 
 genrePanel.addEventListener("click", async (event) => {
@@ -498,13 +725,13 @@ genrePanel.addEventListener("click", async (event) => {
   paintGenres();
   // A chip is one discrete decision, so it writes immediately — there is no
   // stream of them to coalesce the way a dragged slider produces.
-  await chrome.storage.local.set({ filterGenres: genreList() });
+  await writeStore({ filterGenres: genreList() });
 });
 
 genreClear.addEventListener("click", async () => {
   chosenGenres.clear();
   paintGenres();
-  await chrome.storage.local.set({ filterGenres: [] });
+  await writeStore({ filterGenres: [] });
   say("Genres cleared.");
   // The button it was just on has vanished, so park focus on the row it came
   // from rather than dropping it back to the top of the page.
@@ -539,6 +766,7 @@ async function loadNarrow() {
   }
 
   paintRuntime();
+  paintKind();
   paintGenres();
 
   // Everything above quietly repaired a value this page can't display — a
@@ -560,44 +788,63 @@ async function loadNarrow() {
     || storedGenres.length !== kept.length
     || kept.some((genre, index) => storedGenres[index] !== genre);
   if (saved.filterGenres !== undefined && genresDiffer) repairs.filterGenres = kept;
-  if (Object.keys(repairs).length) await chrome.storage.local.set(repairs);
+  if (Object.keys(repairs).length) await writeStore(repairs);
 }
 loadNarrow();
 
-// --- what is hiding things right now --------------------------------------
-// Five filters spread over two cards is more state than anyone will reconstruct
-// by reading five controls, so the top of the page says it in one line. Empty
-// is the resting state and is drawn as one — dashed, unfilled, nothing to act
-// on — so "no filters" is recognisable without being read.
+// --- what is narrowing the page right now ----------------------------------
+// Four rules is more state than anyone will reconstruct by reading four
+// controls, and until now two of them lived in a card that did not look
+// related to the other two. The rail says the whole set in one line, sits
+// between the card's header and its body so it is legible with the card shut,
+// and is simply absent when nothing is filtering — the header's own value says
+// "Off", and a box explaining that it is empty is a row of pixels asking to be
+// read before it can be ignored.
+//
+// Each pill is the button that turns off the rule it names. That is the same
+// per-filter clearing the bar on the Netflix page offers, and it means
+// switching one rule off never costs opening the card first.
 
-const summary = document.getElementById("summary");
-const summaryNone = document.getElementById("summaryNone");
-const summaryPills = document.getElementById("summaryPills");
+const filterRail = document.getElementById("filterRail");
+const filterPills = document.getElementById("filterPills");
 const clearFilters = document.getElementById("clearFilters");
 
 // Each pill says what is being kept or dimmed, not which control did it —
-// "Films only" is the fact; which card it came from is the reader's problem
-// only once they want to change it.
+// "Films only" is the fact; which rule it came from is the reader's problem
+// only once they want to change it, which is what `id` is for.
 function activeFilters() {
   const active = [];
   if (filterEnabled.checked) {
-    active.push({ text: `Under ${parseFloat(filterMin.value).toFixed(1)} dimmed` });
+    const floor = currentFilterMin().toFixed(1);
+    active.push({
+      id: "rating",
+      text: `Under ${floor} dimmed`,
+      undo: `stop dimming under ${floor}`
+    });
   }
 
   const minutes = runtimeValue();
-  if (minutes !== null) active.push({ text: `Films over ${formatRuntime(minutes)}` });
+  if (minutes !== null) {
+    active.push({
+      id: "runtime",
+      text: `Films over ${formatRuntime(minutes)}`,
+      undo: "stop dimming long films"
+    });
+  }
 
   const kind = currentKind();
-  if (kind === "movies") active.push({ text: "Films only" });
-  if (kind === "series") active.push({ text: "Series only" });
+  if (kind === "movies") active.push({ id: "kind", text: "Films only", undo: "show everything again" });
+  if (kind === "series") active.push({ id: "kind", text: "Series only", undo: "show everything again" });
 
   const genres = genreList();
   if (genres.length) {
-    // Past two names the pill would outgrow the bar, so it counts instead and
+    // Past two names the pill would outgrow the rail, so it counts instead and
     // keeps the names on hover. The genre row itself always spells them out.
     active.push({
+      id: "genres",
       text: genres.length > 2 ? `${genres.length} genres only` : `${genres.join(", ")} only`,
-      title: genres.length > 2 ? genres.join(", ") : ""
+      title: genres.length > 2 ? genres.join(", ") : "",
+      undo: "clear the genres"
     });
   }
 
@@ -606,22 +853,85 @@ function activeFilters() {
 
 function paintSummary() {
   const active = activeFilters();
-  summary.dataset.active = active.length ? "yes" : "no";
-  summaryNone.hidden = active.length > 0;
-  summaryPills.hidden = active.length === 0;
-  clearFilters.hidden = active.length === 0;
+  filterRail.hidden = active.length === 0;
 
-  summaryPills.replaceChildren(...active.map((entry) => {
-    const pill = document.createElement("li");
+  filterPills.replaceChildren(...active.map((entry) => {
+    const item = document.createElement("li");
+    const pill = document.createElement("button");
+    pill.type = "button";
     pill.className = "pill";
-    pill.textContent = entry.text;
+    pill.dataset.clear = entry.id;
+    pill.append(entry.text);
+    // The cross is decoration; the accessible name says what pressing it does.
+    const cross = document.createElement("span");
+    cross.className = "x";
+    cross.setAttribute("aria-hidden", "true");
+    cross.textContent = "×";
+    pill.append(cross);
+    pill.setAttribute("aria-label", `${entry.text} — press to ${entry.undo}`);
     if (entry.title) pill.title = entry.title;
-    return pill;
+    item.append(pill);
+    return item;
   }));
 
-  // Every filter that moves here also moves the value on its own closed card.
+  // Every rule that moves here also moves the value on the closed card, and
+  // the rating one moves a line in the read-out below it.
   paintCardValues();
+  paintTrio();
 }
+
+// One rule off, in one press, from a card that need never have been opened.
+// filterMin is deliberately untouched by the rating one: it is the number this
+// person chose, it does nothing while the rule is off, and resetting it would
+// only punish them for switching the rule back on later.
+function clearRule(id) {
+  if (id === "rating") {
+    filterEnabled.checked = false;
+    paintFilter();
+    return writeStore({ filterEnabled: false });
+  }
+  if (id === "runtime") {
+    filterRuntime.value = String(RUNTIME_OFF);
+    paintRuntime();
+    return writeStore({ filterRuntimeMax: null });
+  }
+  if (id === "kind") {
+    const all = kindRadios.find((radio) => radio.value === "all");
+    if (all) all.checked = true;
+    paintKind();
+    return writeStore({ filterKinds: "all" });
+  }
+  if (id === "genres") {
+    chosenGenres.clear();
+    paintGenres();
+    return writeStore({ filterGenres: [] });
+  }
+  return Promise.resolve();
+}
+
+// The pill that was pressed no longer exists, so focus lands on whatever took
+// its place in the rail — and on the card's own header once the rail is empty,
+// rather than being dropped at the top of the page.
+function restoreRailFocus(index) {
+  const pills = [...filterPills.querySelectorAll(".pill")];
+  const next = pills[Math.min(index, pills.length - 1)];
+  if (next) {
+    next.focus();
+    return;
+  }
+  const head = document.querySelector('.card[data-card="filters"] .card-head');
+  if (head) head.focus();
+}
+
+filterPills.addEventListener("click", async (event) => {
+  const pill = event.target.closest(".pill");
+  if (!pill) return;
+  const index = [...filterPills.querySelectorAll(".pill")].indexOf(pill);
+  const label = pill.textContent.replace("×", "").trim();
+  await clearRule(pill.dataset.clear);
+  say(`Cleared: ${label.toLowerCase()}.`);
+  restoreRailFocus(index);
+});
 
 clearFilters.addEventListener("click", async () => {
   filterEnabled.checked = false;
@@ -632,23 +942,114 @@ clearFilters.addEventListener("click", async () => {
 
   paintFilter();
   paintRuntime();
+  paintKind();
   paintGenres();
 
   // One write, so the open Netflix tab repaints once rather than four times.
-  // filterMin is deliberately left alone: it is the number this person chose,
-  // and it does nothing while the dimming is off — resetting it would only
-  // punish them for switching the filter back on later.
-  await chrome.storage.local.set({
+  // filterMin is left alone here for the same reason clearRule() leaves it.
+  await writeStore({
     filterEnabled: false,
     filterRuntimeMax: null,
     filterKinds: "all",
     filterGenres: []
   });
-  say("Filters cleared.");
-  // The button that was just pressed is gone with the filters it cleared, so
-  // focus moves to the line that now explains why rather than to the page top.
-  summary.focus();
+  say("Filters cleared. Nothing is dimmed.");
+  // The button that was just pressed has gone with the rail it sat in.
+  const head = document.querySelector('.card[data-card="filters"] .card-head');
+  if (head) head.focus();
 });
+
+// --- the three rating lines ------------------------------------------------
+// tierHigh decides where a badge turns green, filterMin decides where a card
+// dims, pickMinRating decides what the randomiser will draw. Three numbers,
+// two jobs, and no surface ever showed them together — which is how a pick
+// panel came to say "your bar: IMDb 8.0 or better" directly above "18 dimmed
+// by your filter", each true, neither reconcilable with the other. They are
+// read as a set here, against the same 0-10 line the colours card cuts.
+//
+// Everything below runs after the script has finished parsing — every caller
+// is a load that has awaited storage, or a user event — so the watch section's
+// consts further down are initialised by the time this reads them.
+
+const trioLow = document.getElementById("trioLow");
+const trioMid = document.getElementById("trioMid");
+const trioHigh = document.getElementById("trioHigh");
+const markDim = document.getElementById("markDim");
+const markPick = document.getElementById("markPick");
+const trioGreenValue = document.getElementById("trioGreenValue");
+const trioDimValue = document.getElementById("trioDimValue");
+const trioDimRow = document.getElementById("trioDimRow");
+const trioDimSource = document.getElementById("trioDimSource");
+const trioPickValue = document.getElementById("trioPickValue");
+const trioPickSource = document.getElementById("trioPickSource");
+const trioClash = document.getElementById("trioClash");
+
+// 0.1 steps don't land on clean tenths in binary, so two numbers that are the
+// same line on screen must not be a disagreement in arithmetic.
+function sameScore(a, b) {
+  return Math.abs(a - b) < 0.05;
+}
+
+function pickFloorNow() {
+  const value = watch.pickMinRating ? Number(watch.pickMinRating.value) : NaN;
+  return Number.isFinite(value) ? value : PICK_FALLBACK_MIN;
+}
+
+function paintTrio() {
+  const green = tierHigh;
+  const dim = currentFilterMin();
+  const dimOn = filterEnabled.checked;
+  const pick = pickFloorNow();
+
+  // The same cut of 0-10 the colours card draws, at a sixth of the size.
+  trioLow.style.left = "0%";
+  trioLow.style.width = `${pct(tierMid)}%`;
+  trioMid.style.left = `${pct(tierMid)}%`;
+  trioMid.style.width = `${Math.max(pct(green) - pct(tierMid), 0)}%`;
+  trioHigh.style.left = `${pct(green)}%`;
+  trioHigh.style.right = "0";
+
+  markDim.style.left = `${pct(dim)}%`;
+  markDim.textContent = `dim ${fmt(dim)}`;
+  markDim.dataset.off = dimOn ? "no" : "yes";
+  markPick.style.left = `${pct(pick)}%`;
+  markPick.textContent = `pick ${fmt(pick)}`;
+
+  trioGreenValue.textContent = fmt(green);
+
+  trioDimValue.textContent = fmt(dim);
+  trioDimRow.dataset.on = dimOn ? "yes" : "no";
+  trioDimSource.textContent = !dimOn
+    ? "switched off — nothing dims by rating"
+    : filterMinInherited ? "following the green boundary" : "a floor of its own";
+
+  trioPickValue.textContent = fmt(pick);
+  trioPickSource.textContent = pickMinInherited
+    ? "following the green boundary"
+    : "a floor of its own";
+
+  // One line, only when the three actually disagree — and it says which way,
+  // because the failure is "your pick can land on a card you have already
+  // dimmed", not the arithmetic.
+  let clash = "";
+  let kind = "warn";
+  if (dimOn && pick < dim - 0.05) {
+    clash = `The pick draws from ${fmt(pick)} but everything under ${fmt(dim)} is dimmed, `
+      + "so it can land on a title you have already pushed into the background.";
+  } else if (dimOn && dim > green + 0.05) {
+    clash = `Dimming starts above the green boundary, so titles the badge calls green `
+      + `(${fmt(green)} and up) are being dimmed too.`;
+  } else if (pick > green + 0.05) {
+    clash = `The randomiser asks for more than the badge calls good: it draws from `
+      + `${fmt(pick)}, green starts at ${fmt(green)}.`;
+  } else if (dimOn && sameScore(dim, green) && sameScore(pick, green)) {
+    clash = "All three sit on the same line — green, dimmed and picked mean one score.";
+    kind = "ok";
+  }
+  trioClash.textContent = clash;
+  trioClash.dataset.k = kind;
+  trioClash.hidden = !clash;
+}
 
 // --- fixing a wrong match -------------------------------------------------
 // The worker resolves a Netflix label to an IMDb id from the name alone, and
@@ -1037,6 +1438,17 @@ function readOpenCards() {
 
 const openCards = readOpenCards();
 
+// "Dim what I'd skip" and "Narrow it down" are one card now. Anyone who left
+// either of them open should find the card that replaced them open, rather
+// than a remembered state pointing at two cards that no longer exist.
+const hadOldFilterCards = openCards.has("dim") || openCards.has("narrow");
+openCards.delete("dim");
+openCards.delete("narrow");
+if (hadOldFilterCards) {
+  openCards.add("filters");
+  rememberOpenCards();
+}
+
 function rememberOpenCards() {
   try {
     localStorage.setItem(OPEN_KEY, JSON.stringify([...openCards]));
@@ -1078,19 +1490,50 @@ for (const card of cards) {
   });
 }
 
+// The genre chips are remembered in the same set, for the same reason. Done
+// here rather than beside the control itself, because that section is parsed
+// before this one and the set does not exist yet when it runs.
+setGenrePanel(openCards.has("genres"));
+
+// --- getting to the card that owns a number --------------------------------
+// The three rating lines are set in two different cards, and the read-out that
+// names them is in a third place. Reading "the pick draws from 8.0" and then
+// hunting for the card that says so is the page making someone work for a
+// thing it already knows, so the name of each is the button that opens it.
+function gotoCard(name) {
+  const card = document.querySelector(`.card[data-card="${name}"]`);
+  if (!card) return;
+  if (!openCards.has(name)) {
+    openCards.add(name);
+    setCardOpen(card, true);
+    rememberOpenCards();
+  }
+  const head = card.querySelector(".card-head");
+  if (head) head.focus();
+  // After the focus, which does its own scrolling: this is the one that puts
+  // the whole card in view rather than just its header.
+  card.scrollIntoView({ block: "nearest" });
+}
+
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("[data-goto]");
+  if (link) gotoCard(link.dataset.goto);
+});
+
 // Called from paintScale() and paintSummary(), which between them run whenever
-// any of the three existing settings cards changes.
+// any of the two settings cards in the Ratings group changes.
 function paintCardValues() {
   const moved = tierMid !== RAG_DEFAULTS.tierMid || tierHigh !== RAG_DEFAULTS.tierHigh;
   setCardValue("colours", `${fmt(tierMid)} · ${fmt(tierHigh)}`, moved ? "yes" : "no");
 
-  const dimming = filterEnabled.checked;
-  setCardValue("dim", dimming ? `below ${parseFloat(filterMin.value).toFixed(1)}` : "Off",
-    dimming ? "yes" : "no");
-
-  // The summary bar counts the dim filter too; this card doesn't own it.
-  const narrowing = activeFilters().length - (dimming ? 1 : 0);
-  setCardValue("narrow", narrowing ? `${narrowing} on` : "Any", narrowing ? "yes" : "no");
+  // One filter card, so one value — and with a single rule running it names
+  // that rule rather than counting to one, because "Films only" is the answer
+  // and "1 rule on" is a riddle. The rail underneath spells out the rest.
+  const active = activeFilters();
+  const text = active.length === 0 ? "Off"
+    : active.length === 1 ? active[0].text
+    : `${active.length} rules on`;
+  setCardValue("filters", text, active.length ? "yes" : "no");
 }
 
 // Whether the three files are in place is the one thing worth reopening a card
@@ -1269,7 +1712,7 @@ function sameList(a, b) {
 // band control and the dim threshold already do.
 
 function saveNow(patch) {
-  return chrome.storage.local.set(patch);
+  return writeStore(patch);
 }
 
 let watchQueue = {};
@@ -1283,7 +1726,7 @@ function saveSoon(patch) {
     watchPending = false;
     const batch = watchQueue;
     watchQueue = {};
-    await chrome.storage.local.set(batch);
+    await writeStore(batch);
   });
 }
 
@@ -1418,6 +1861,10 @@ function paintWatch() {
 
   // Also neutral: nothing is exported until Shift+E.
   setCardValue("export", radioValue(formatRadios, EXPORT_FORMATS, WATCH_DEFAULTS.exportFormat).toUpperCase());
+
+  // This floor is one of the three lines the filter card reads out, so it can
+  // never move here without moving there.
+  paintTrio();
 }
 
 // Called by paintScale() every time a boundary moves. An inherited floor *is*
@@ -1496,7 +1943,10 @@ pickMinFollow.addEventListener("click", async () => {
   pickMinInherited = true;
   // Removed, not overwritten with the boundary's value: absent is the state
   // pick.js reads as "follow tierHigh". Writing the number would freeze it.
-  await chrome.storage.local.remove("pickMinRating");
+  // The dim floor next door cannot do this — content.js reads an absent
+  // filterMin as a constant, not as a boundary — which is why that one
+  // materialises the number instead. See syncFilterMinFromTier().
+  await removeStore("pickMinRating");
   syncPickMinFromTier();
   say("Following the green boundary again.");
   // The button has just hidden itself, so focus moves to the slider it governs
@@ -1527,14 +1977,84 @@ hiddenClear.addEventListener("click", async () => {
   if (head) head.focus();
 });
 
-// browse.js writes hiddenTitles from the Netflix tab while this page may be
-// sitting open beside it. It is the only key watched: everything else here is
-// written by this page, and repainting a slider mid-drag would fight the hand
-// holding it.
+// --- somebody else's changes -----------------------------------------------
+// browse.js writes hiddenTitles from the Netflix tab, and the filter bar on
+// that page clears the same filter keys this card owns — both while this page
+// may be sitting open beside them. A card that goes on claiming three rules
+// are running after the user has just cleared them on Netflix is the same
+// class of lie this rework exists to end, so those changes are adopted.
+//
+// Only somebody else's, though: isOwnEcho() drops the echo of every write this
+// page made, which is what stops a repaint fighting the hand on a slider.
+const ADOPTED_FILTER_KEYS = [
+  "filterEnabled", "filterMin", "filterRuntimeMax", "filterKinds", "filterGenres"
+];
+
+function adoptFilterKey(key, value) {
+  if (key === "filterEnabled") {
+    filterEnabled.checked = boolOr(value, FILTER_DEFAULTS.filterEnabled);
+  } else if (key === "filterMin") {
+    // Chosen elsewhere is still chosen: a floor somebody set on the Netflix
+    // page is theirs, and this page stops calling it a followed boundary.
+    filterMin.value = String(numberIn(value, FILTER_MIN_RANGE, FILTER_FALLBACK_MIN));
+    filterMinInherited = false;
+    rememberFollowFlag(false);
+  } else if (key === "filterRuntimeMax") {
+    const minutes = Number(value);
+    filterRuntime.value = String(
+      Number.isFinite(minutes) && value !== null
+        ? Math.min(Math.max(Math.round(minutes / RUNTIME_STEP) * RUNTIME_STEP, RUNTIME_MIN), RUNTIME_OFF)
+        : RUNTIME_OFF
+    );
+  } else if (key === "filterKinds") {
+    const kind = KINDS.includes(value) ? value : NARROW_DEFAULTS.filterKinds;
+    const radio = kindRadios.find((one) => one.value === kind);
+    if (radio) radio.checked = true;
+  } else if (key === "filterGenres") {
+    chosenGenres.clear();
+    if (Array.isArray(value)) {
+      for (const genre of value) if (GENRES.includes(genre)) chosenGenres.add(genre);
+    }
+  }
+}
+
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes.hiddenTitles) return;
-  hiddenTitles = titleList(changes.hiddenTitles.newValue);
-  paintWatch();
+  if (area !== "local") return;
+
+  let filters = false;
+  let tiers = false;
+
+  for (const [key, change] of Object.entries(changes)) {
+    if (isOwnEcho(key, change.newValue)) continue;
+
+    if (key === "hiddenTitles") {
+      hiddenTitles = titleList(change.newValue);
+      paintWatch();
+    } else if (ADOPTED_FILTER_KEYS.includes(key)) {
+      adoptFilterKey(key, change.newValue);
+      filters = true;
+    } else if (key === "tierHigh" || key === "tierMid") {
+      const value = isNumber(change.newValue) ? change.newValue : RAG_DEFAULTS[key];
+      if (key === "tierHigh") {
+        tierHigh = value;
+        storedTierHigh = change.newValue;
+      } else {
+        tierMid = value;
+      }
+      tiers = true;
+    }
+  }
+
+  if (filters) {
+    paintFilter();
+    paintRuntime();
+    paintKind();
+    paintGenres();
+  }
+  // Second, and never instead: paintScale() repaints the band, both floors that
+  // follow it and the read-out — and a filterMin adopted just above is no
+  // longer a followed one, so syncFilterMinFromTier() will leave it alone.
+  if (tiers) paintScale();
 });
 
 // --- loading ---------------------------------------------------------------
@@ -1633,6 +2153,6 @@ async function loadWatch() {
       repairs[key] = value[key];
     }
   }
-  if (Object.keys(repairs).length) await chrome.storage.local.set(repairs);
+  if (Object.keys(repairs).length) await writeStore(repairs);
 }
 loadWatch();

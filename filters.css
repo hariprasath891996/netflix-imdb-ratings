@@ -1,0 +1,347 @@
+/* The on-page filter status bar. Everything here is prefixed nrx-filters- so it
+   cannot reach a badge, a chip, the sort bar, the launcher or the pick panel —
+   content.css, sort.css, genres.css, pick.css and browse.css own those, and this
+   file is not allowed to have an opinion about them.
+
+   The one rule below that reaches outside this namespace is the peek override on
+   .nrx-dimmed, which is content.css's class. It is deliberate and it is scoped to
+   :root.nrx-filters-peek, so it can only fire while this file's own class is on
+   the document — see the comment on it.
+
+   This file runs on Netflix, Prime Video, Amazon and Disney+, so nothing here
+   assumes a particular site's reset. Every property the bar needs is talked all
+   the way down from the UA default.
+
+   --- legibility ------------------------------------------------------------
+   FINDINGS problem 4 is that the launcher pills are too faint to read as
+   controls over artwork that changes underneath them. This element must not
+   repeat that, because unlike a launcher it is the answer to "why does my
+   homepage look broken" — it is worthless if it cannot be read at a glance over
+   a black poster, a white one, or a bright title card.
+
+   So it is not a translucent pill with a raised opacity. It is a fully opaque
+   surface (#0b0b0b, no alpha anywhere in the background chain), carrying its own
+   1px light ring so its edge is visible against black artwork, its own dark drop
+   shadow so its edge is visible against white artwork, and text at #f5f5f5 —
+   about 17:1 on that ground, where AA asks for 4.5. Nothing on it is below 7:1.
+   There is no resting opacity and no hover-to-reveal: it is either on screen and
+   readable, or absent. */
+
+/* The root is a positioning host for one fixed child and nothing else. Zero size
+   and no pointer surface of its own, so an element parked on <body> can never
+   intercept a click meant for the page underneath. */
+.nrx-filters-root {
+  position: static;
+}
+
+/* --- the bar --------------------------------------------------------------
+   Bottom-left, fixed, out of the document flow entirely.
+
+   The bottom-RIGHT corner is spoken for: genres.js and pick.js share
+   .nrx-launcher there and either may grow another button, so anything parked
+   beside it is a collision waiting for the next feature. Diagonally opposite is
+   the one place that column cannot reach however tall it gets.
+
+   All four sites keep their own fixed chrome at the top — nav, profile menu,
+   search — and grow their hover previews out of the row that owns them, so the
+   bottom-left is artwork and nothing else. The bar is built to sit on artwork
+   legibly rather than to dodge it.
+
+   z-index sits in the contract's 2147483000 band, the same neighbourhood as
+   content.css's tooltip and browse.css's undo toast. Equal to the toast on
+   purpose: the toast is appended later and so paints over this bar for the few
+   seconds it exists, which is the right precedence — an action someone just took
+   beats a status they can read whenever they like. */
+.nrx-filters-bar {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 40px));
+
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 12px 13px;
+
+  border-radius: 6px;
+
+  /* Opaque, and stated as an opaque colour rather than a translucent one over a
+     backdrop-filter: a blur still borrows the artwork's luminance, which is the
+     thing that changes underneath us. The inset ring is part of the background
+     shorthand's job here rather than a border, so the ring cannot be lost to a
+     site stylesheet that resets borders on sections. */
+  background: #0b0b0b;
+  box-shadow:
+    inset 0 0 0 1px #3d3d3d,
+    0 6px 20px rgba(0, 0, 0, 0.65);
+
+  color: #f5f5f5;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* --- the headline --------------------------------------------------------- */
+.nrx-filters-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A filled dot rather than an icon: it is the one piece of the bar that says
+   "something is on" pre-attentively, and an icon at this size would be a shape
+   nobody recognises. Amber is the extension's own "maybe" colour from
+   content.css, which is what a filter is — not an error. */
+.nrx-filters-mark {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5a00d;
+}
+
+.nrx-filters-bar[data-state="idle"] .nrx-filters-mark {
+  background: #7a7a7a;
+}
+
+.nrx-filters-bar[data-peeking="true"] .nrx-filters-mark {
+  background: #46d369;
+}
+
+.nrx-filters-count {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #f5f5f5;
+}
+
+/* Peeking is borrowed time, and the bar says so in its own colour as well as in
+   its words. A left rule rather than a wash, so the text contrast is untouched
+   at exactly the moment the user is reading the page behind it. */
+.nrx-filters-bar[data-peeking="true"] {
+  box-shadow:
+    inset 3px 0 0 0 #46d369,
+    inset 0 0 0 1px #3d3d3d,
+    0 6px 20px rgba(0, 0, 0, 0.65);
+}
+
+/* --- the chips ------------------------------------------------------------
+   One per active filter, each one the whole control: label, how many titles it
+   is burying, and the cross that clears it. A separate remove button inside a
+   chip would double the tab stops for no gain — there is nothing else a chip
+   could do. */
+.nrx-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  /* A long genre list wraps rather than widening the bar, and scrolls rather
+     than growing it past a few lines. */
+  max-height: 5.2em;
+  overflow-y: auto;
+}
+
+.nrx-filters-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  /* The UA default for a button is a 2px system border, centred text and the
+     system font; none of that survives contact with this bar. */
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid #4a4a4a;
+  border-radius: 999px;
+  background: #232323;
+
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.nrx-filters-chip:hover,
+.nrx-filters-chip:focus-visible {
+  background: #3a3a3a;
+  border-color: #b3b3b3;
+}
+
+/* The count carried by the chip, not by the label: it is a number about this
+   filter, and putting it in the same weight as the name would make the chip read
+   as a sentence. Tabular figures so a chip does not resize as its count ticks
+   past ten while rows load. */
+.nrx-filters-chip-count {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #0b0b0b;
+  color: #ffc94d;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.nrx-filters-chip-count[hidden] {
+  display: none;
+}
+
+.nrx-filters-chip-x {
+  color: #b3b3b3;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.nrx-filters-chip:hover .nrx-filters-chip-x,
+.nrx-filters-chip:focus-visible .nrx-filters-chip-x {
+  color: #ffffff;
+}
+
+/* --- the actions ---------------------------------------------------------- */
+.nrx-filters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nrx-filters-btn {
+  margin: 0;
+  padding: 6px 11px;
+  border: 1px solid #5a5a5a;
+  border-radius: 4px;
+  background: #191919;
+
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+
+  /* A hold-to-peek button that selects its own label on a long press feels
+     broken. This is the only place the property is needed. */
+  user-select: none;
+  -webkit-user-select: none;
+
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+/* Stated rather than left to the UA sheet: the peek button hides itself when
+   there is nothing dimmed to see through, and a site stylesheet that sets a
+   display on button elements would otherwise keep it on screen. */
+.nrx-filters-btn[hidden] {
+  display: none;
+}
+
+.nrx-filters-btn:hover,
+.nrx-filters-btn:focus-visible {
+  background: #303030;
+  border-color: #b3b3b3;
+}
+
+.nrx-filters-peek-btn[aria-pressed="true"] {
+  border-color: #46d369;
+  color: #46d369;
+}
+
+/* Clearing everything is the loud one — it is the button that answers "my
+   homepage looks broken" — so it is the one that carries the extension's
+   emphasis rather than another grey outline. #e50914 with white text is 4.8:1,
+   above the 4.5 AA asks for at this size. */
+.nrx-filters-clear {
+  border-color: #e50914;
+  background: #e50914;
+  color: #ffffff;
+}
+
+.nrx-filters-clear:hover,
+.nrx-filters-clear:focus-visible {
+  background: #f6121d;
+  border-color: #f6121d;
+}
+
+/* :focus-visible rather than :focus, and white at 2px — the same ring
+   content.css draws on a badge, sort.css on its buttons and genres.css on its
+   trigger, because someone tabbing between the four should not have to learn
+   four focus styles. */
+.nrx-filters-chip:focus-visible,
+.nrx-filters-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* The live region. Present to a screen reader, absent to everyone else — and
+   clipped rather than display:none, which would stop it being announced at all. */
+.nrx-filters-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- the peek -------------------------------------------------------------
+   The only rule in this file that names a class it does not own. content.css
+   dims a card with `.nrx-dimmed { opacity: 0.35 }`; this outranks it on
+   specificity alone (0,2,0 against 0,1,0), so no !important is needed and the
+   contract's rule against one is kept.
+
+   Nothing here writes a setting or touches a card — filters.js puts one class on
+   <html> and takes it off again. That is what makes the peek genuinely free: the
+   dim classes stay exactly where they were, so the counts do not move while you
+   are looking, and the outline below can show you precisely which titles the
+   filter had buried. */
+:root.nrx-filters-peek .nrx-dimmed {
+  opacity: 1;
+  filter: none;
+  outline: 2px dashed rgba(229, 160, 13, 0.9);
+  outline-offset: -2px;
+}
+
+/* --- narrow viewports -----------------------------------------------------
+   Below this the bar is close to the full width of the window, which would put
+   it under the launcher's bottom-right corner. It lifts above the launcher's
+   own 20px + pill instead, and spans the width rather than pretending to be a
+   corner element. */
+@media (max-width: 720px) {
+  .nrx-filters-bar {
+    left: 12px;
+    right: 12px;
+    bottom: 78px;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* At 200% zoom on a laptop the viewport is effectively half as wide, so the rule
+   above is already doing the work; this only stops the chip strip eating the
+   window when a long genre list meets a short window. */
+@media (max-height: 560px) {
+  .nrx-filters-chips {
+    max-height: 3.4em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nrx-filters-chip,
+  .nrx-filters-btn {
+    transition: none;
+  }
+}
