@@ -424,6 +424,7 @@ function refreshTip(badge) {
   if (!base) return; // an unresolved badge has one fixed line and no markers
 
   const lines = [base];
+  if (badge.dataset.seasonNote) lines.push(badge.dataset.seasonNote);
   if (badge.dataset.confidence === "gem") lines.push("Under-seen: strong score, few votes");
   if (badge.dataset.best) lines.push("Best rated in this row");
   badge.dataset.tip = lines.join("\n");
@@ -1081,6 +1082,40 @@ function ensureSeasonStrip(meta) {
   renderSeasonStrip(meta, seasons);
 }
 
+// The strip lives inside Netflix's hover preview. That panel is a per-profile
+// setting many people turn off — and we are separately planning to offer
+// turning it off as a feature — so a season finding that only appears there is
+// invisible to a large share of users. The badge is the surface that always
+// exists, so the same sentence is attached to its tooltip as a marker line.
+async function attachSeasonNote(badge, result) {
+  if (!isSeriesType(result.titleType) || !result.imdbID) return;
+
+  let seasons = seasonsCache.get(result.imdbID);
+  if (!seasons) {
+    try {
+      const reply = await chrome.runtime.sendMessage({ type: "seasons", imdbID: result.imdbID });
+      if (!reply || !Array.isArray(reply.seasons)) return;
+      seasons = reply.seasons;
+      seasonsCache.set(result.imdbID, seasons);
+    } catch (e) {
+      return;
+    }
+  }
+
+  const usable = usableSeasons(seasons);
+  if (usable.length < 2) return;
+
+  const lo = Math.min(...usable.map((entry) => entry.average));
+  const hi = Math.max(...usable.map((entry) => entry.average));
+  if (hi - lo < SEASON_SPREAD_MIN) return; // same gate as the strip: say nothing
+
+  const line = seasonHeadline(usable);
+  if (!line || !badge.isConnected) return;
+
+  badge.dataset.seasonNote = line;
+  refreshTip(badge);
+}
+
 async function processModal(meta) {
   if (meta.dataset.nrxDone) return;
   meta.dataset.nrxDone = "1";
@@ -1182,6 +1217,11 @@ async function process(card) {
   }
 
   renderBadge(hostFor(card), result);
+
+  // Fire and forget: the badge is already on screen and correct, and the season
+  // line only ever adds a tooltip row it did not have.
+  const badge = hostFor(card).querySelector(".nrx-badge");
+  if (badge) attachSeasonNote(badge, result);
 }
 
 const visibility = new IntersectionObserver(
