@@ -1,0 +1,90 @@
+/* The player features' only two pieces of chrome: a speed/seek toast and a
+   local subtitle blackout. Everything here is prefixed nrx-player- so it
+   cannot reach a badge, the sort bar, the genre picker or the subtitle
+   styling — content.css, sort.css, genres.css and subtitles.css own those, and
+   this file is not allowed to have an opinion about them.
+
+   Both rules below sit over a full-bleed video rather than over Netflix's
+   layout, which changes what legibility costs: there is no guaranteed
+   background colour behind either of them, because the frame underneath can be
+   a white wall or a night exterior. Hence an opaque plate rather than a tint. */
+
+/* --- the toast -------------------------------------------------------------
+   Position fixed rather than absolute, and re-parented in JS into whatever the
+   fullscreen element currently is. Fullscreen is why: a fixed element that is
+   not a descendant of the fullscreen node is not painted at all, so the parent
+   has to move even though the coordinates do not.
+
+   Top-centre, clear of Netflix's own furniture — the back arrow is top-left,
+   the title card top-centre but only on the first few seconds, the control bar
+   and the scrubber are along the bottom, and the skip button sits bottom-right.
+   Above 2147483000, matching content.css's tooltip, because Netflix's player
+   chrome climbs to around 1000 and a speed indicator hidden behind the
+   scrubber is not an indicator. */
+.nrx-player-toast {
+  position: fixed;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+
+  /* Netflix's reset never reached an element it did not render, so this starts
+     from the UA default and is talked all the way down. */
+  margin: 0;
+  padding: 10px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.92);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+
+  color: #f2f2f2;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  /* Never in the way of a click. The toast lives directly over the video, and
+     the one thing worse than missing the speed indicator is having it swallow
+     a play/pause. */
+  pointer-events: none;
+  user-select: none;
+
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, visibility 0.18s;
+}
+
+.nrx-player-toast--on {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* --- the subtitle blackout -------------------------------------------------
+   `c` hides the cues Netflix has already drawn. It does not change the track
+   Netflix has selected — that would mean driving Netflix's own menu and
+   writing the choice back to the account, which this extension does not do.
+
+   !important is load-bearing here rather than lazy, and this is one of the two
+   places the house style allows it: Netflix positions and sizes the timed-text
+   layer with inline styles, so an ordinary rule loses to the style attribute
+   every time. The class is only ever on <html> while the user has asked for
+   this, so nothing is being permanently overridden.
+
+   Both hooks are listed because they are the same layer under two names — the
+   long-standing class, and the data-uia in case the class is next to be
+   replaced by a CSS-in-JS hash. */
+html.nrx-player-subs-off .player-timedtext,
+html.nrx-player-subs-off [data-uia="player-timedtext"] {
+  display: none !important;
+}
+
+/* A toast that fades is decoration; a toast that appears is information. Under
+   a reduced-motion preference it keeps the second and drops the first. */
+@media (prefers-reduced-motion: reduce) {
+  .nrx-player-toast {
+    transition: none;
+  }
+}

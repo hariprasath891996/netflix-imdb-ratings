@@ -1,0 +1,201 @@
+/* Subtitle styling — the whole feature lives here, and that is the design.
+
+   Netflix renders timed text into a container it positions absolutely and
+   re-styles inline: it recomputes the font size and the position on every
+   resize, on entering and leaving fullscreen, and it throws the container away
+   and builds a new one when the subtitle track changes. Anything that reached
+   in and set properties on those elements would be overwritten within a frame
+   and would have to keep re-applying itself for as long as the video played.
+
+   A stylesheet does not have that problem. It is matched against whatever is in
+   the document at the time, so a container Netflix rebuilt a millisecond ago is
+   styled the moment it lands, with no observer, no timer and no re-apply loop.
+   subtitles.js therefore touches exactly one element — <html> — where it writes
+   the user's choices as custom properties and a handful of flags, and every
+   rule below reads them from there.
+
+   That also settles the failure mode. If the selectors below are wrong, or
+   Netflix renames the class tomorrow, nothing matches and nothing happens: no
+   exception, no half-styled player, no video left in a broken state. The
+   feature is either applied or absent.
+
+   The three selectors, and what each is assumed to be:
+
+     .player-timedtext                    the layer the player lays over the
+                                          video; not styled here, only used to
+                                          anchor the two below
+     .player-timedtext-text-container     one positioned box per subtitle line,
+                                          carrying Netflix's inline position and
+                                          font size — the element it recalculates
+     .player-timedtext-text-container span the cue itself, carrying the inline
+                                          colour, background and shadow
+
+   Every `!important` below is on a property Netflix sets, or may set, inline on
+   one of those two elements. Nothing but `!important` beats an inline style —
+   specificity does not enter into it — so the flag is the only way to win, and
+   each use says which inline declaration it is beating.
+
+   Nothing here animates, so there is nothing for prefers-reduced-motion to turn
+   off: a lifted subtitle is lifted from the first frame it is painted in. */
+
+/* --- font size -------------------------------------------------------------
+
+   The size is a percentage on purpose. Netflix sizes subtitles in pixels
+   against the *video* box, not the viewport, so its own number is already
+   correct for a windowed player, a fullscreen one and every zoom level in
+   between. A percentage multiplies that number rather than replacing it, which
+   keeps all of that responsiveness and makes the setting mean what it says:
+   150% is half again as large as whatever Netflix would have drawn.
+
+   This assumes the inline pixel size sits on the container and the cue span
+   inherits it. Deeper spans are pinned to 100% so a cue with nested markup —
+   Netflix wraps italics and speaker changes in their own spans — is scaled once
+   rather than once per level of nesting.
+
+   The flag is only present when the user moved the slider off 100, so the
+   default path leaves Netflix's own type entirely alone. */
+:root[data-nrx-subs="on"][data-nrx-subs-size="on"] .player-timedtext-text-container > span {
+  /* overrides the inline font-size Netflix writes on the cue, if it puts it
+     there rather than on the container */
+  font-size: calc(var(--nrx-subs-size, 100) * 1%) !important;
+}
+
+:root[data-nrx-subs="on"][data-nrx-subs-size="on"] .player-timedtext-text-container > span span {
+  /* same inline font-size, on nested cue markup — 100% of the parent, so the
+     scale is applied once and does not compound down the tree */
+  font-size: 100% !important;
+}
+
+:root[data-nrx-subs="on"][data-nrx-subs-size="on"] .player-timedtext-text-container {
+  /* overrides the inline line-height Netflix pairs with its own font size:
+     enlarged text inside a line box measured for the old size would overlap the
+     line above it */
+  line-height: 1.3 !important;
+}
+
+/* --- font family ---------------------------------------------------------- */
+
+:root[data-nrx-subs="on"][data-nrx-subs-family="on"] .player-timedtext-text-container,
+:root[data-nrx-subs="on"][data-nrx-subs-family="on"] .player-timedtext-text-container span {
+  /* overrides the inline font-family Netflix applies from the viewer's own
+     subtitle appearance settings */
+  font-family: var(--nrx-subs-family) !important;
+}
+
+/* --- colour ---------------------------------------------------------------
+
+   Applied to every span rather than the outer one, because a cue with nested
+   markup carries its own inline colour on each level — a speaker colour on an
+   inner span would otherwise survive and the setting would look ignored.
+
+   Unset rather than defaulted when the user has not chosen: white is Netflix's
+   own colour, so re-declaring it would be a no-op that still stripped whatever
+   the track itself asked for. */
+:root[data-nrx-subs="on"][data-nrx-subs-colour="on"] .player-timedtext-text-container span {
+  /* overrides the inline color Netflix writes on each cue span */
+  color: var(--nrx-subs-colour) !important;
+}
+
+/* --- backdrop -------------------------------------------------------------
+
+   Four ways of separating white text from whatever is behind it, in ascending
+   order of how much of the picture they cost. Each one clears the other three
+   so switching between them cannot leave a shadow under a box. */
+
+/* none — for a clean picture, or for an OLED where a shadow is visible as a
+   grey haze on black. */
+:root[data-nrx-subs="on"][data-nrx-subs-backdrop="none"] .player-timedtext-text-container span {
+  /* both overriding the inline text-shadow and background-color Netflix sets */
+  text-shadow: none !important;
+  background-color: transparent !important;
+}
+
+/* shadow — Netflix's own approach, but heavier. Two shadows: a tight dark one
+   for edge definition against light backgrounds, and a wider soft one that
+   lifts the whole line off busy footage. */
+:root[data-nrx-subs="on"][data-nrx-subs-backdrop="shadow"] .player-timedtext-text-container span {
+  /* overrides the inline text-shadow Netflix computes for its own style */
+  text-shadow:
+    0 0.06em 0.08em rgba(0, 0, 0, 0.95),
+    0 0 0.28em rgba(0, 0, 0, 0.75) !important;
+  /* overrides the inline background-color, which is how Netflix draws its own
+     box style and would otherwise sit behind this */
+  background-color: transparent !important;
+}
+
+/* outline — four hard offsets plus a soft centre, in em so the ring thickens
+   with the type rather than thinning to nothing at 250%. Chosen over
+   -webkit-text-stroke because a stroke is painted over the glyph and eats into
+   thin letterforms; these are painted behind it. */
+:root[data-nrx-subs="on"][data-nrx-subs-backdrop="outline"] .player-timedtext-text-container span {
+  /* overrides the inline text-shadow Netflix computes for its own style */
+  text-shadow:
+    -0.045em -0.045em 0 #000,
+    0.045em -0.045em 0 #000,
+    -0.045em 0.045em 0 #000,
+    0.045em 0.045em 0 #000,
+    0 0 0.12em #000 !important;
+  /* overrides the inline background-color */
+  background-color: transparent !important;
+}
+
+/* box — the most legible and the most intrusive. box-decoration-break gives a
+   wrapped cue one plate per line instead of one ragged plate behind all of
+   them. */
+:root[data-nrx-subs="on"][data-nrx-subs-backdrop="box"] .player-timedtext-text-container > span {
+  /* overrides the inline background-color Netflix writes on the cue span —
+     usually fully transparent, which is exactly what has to be beaten here */
+  background-color: rgba(0, 0, 0, 0.75) !important;
+  /* overrides the inline text-shadow: a shadow inside its own plate is only
+     mud */
+  text-shadow: none !important;
+
+  padding: 0.05em 0.35em;
+  border-radius: 0.12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+:root[data-nrx-subs="on"][data-nrx-subs-backdrop="box"] .player-timedtext-text-container > span span {
+  /* overrides the inline background-color on nested cue markup, so italics or a
+     speaker change inside a line does not stack a second plate on the first */
+  background-color: transparent !important;
+  text-shadow: none !important;
+}
+
+/* --- opacity --------------------------------------------------------------
+
+   On the cue span rather than the container, so the text, its shadow and its
+   box fade as one group. The flag is absent at 100, which keeps the player free
+   of a composited layer it did not ask for on the default path. */
+:root[data-nrx-subs="on"][data-nrx-subs-opacity="on"] .player-timedtext-text-container > span {
+  /* precautionary: opacity is not known to be one of the properties Netflix
+     writes inline here, but this is the element it rewrites wholesale on every
+     resize, so the flag is what guarantees the setting survives a recalculation
+     if it ever starts */
+  opacity: calc(var(--nrx-subs-opacity, 100) / 100) !important;
+}
+
+/* --- lift -----------------------------------------------------------------
+
+   The reason this feature exists. The player's controls cover the bottom of the
+   frame whenever they appear, and plenty of titles sit their subtitles lower
+   than is comfortable regardless.
+
+   `translate` rather than `transform` is the load-bearing choice here. Netflix
+   positions this container with inline `top`/`left` and, in some builds, an
+   inline `transform: translate(-50%, -50%)` to centre it. Writing to `transform`
+   would replace that centring and throw the subtitles somewhere sideways; the
+   independent `translate` property composes with it instead, so the lift is
+   applied on top of whatever Netflix worked out rather than in place of it.
+
+   vh is what the setting is specified in, and it is honest in fullscreen, where
+   this feature is actually used. In a small windowed player the viewport is
+   taller than the video, so a large lift there moves the subtitles further than
+   the number suggests — off the picture, at the extreme. That is a known limit
+   of the unit, not a bug in the rule. */
+:root[data-nrx-subs="on"][data-nrx-subs-lift="on"] .player-timedtext-text-container {
+  /* precautionary, and for the same reason as opacity above: this element's
+     inline style is rewritten in full on every resize and fullscreen change */
+  translate: 0 calc(var(--nrx-subs-lift, 0) * -1vh) !important;
+}

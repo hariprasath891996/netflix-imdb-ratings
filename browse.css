@@ -1,0 +1,204 @@
+/* Styles for browse.js — stopped autoplay, and the Continue Watching dismiss
+   control. Everything here sits on top of Netflix's own artwork, so it is
+   defensive in the same way content.css is: dark plates, explicit colours, and
+   nothing sized against a particular tile.
+
+   On !important. The contract allows it for overriding Netflix's inline styles
+   and asks for a note when it is used, so here is the note. Three rules below
+   carry it and each says why on its own line; the common thread is that they
+   are all load-bearing rather than cosmetic. A content-script stylesheet has no
+   guaranteed position in the cascade against a CSS-in-JS page setting the same
+   property at the same specificity, and a row that is half hidden, or a
+   billboard trailer that is visible but paused, is worse than either outcome
+   done properly. */
+
+/* --- feature 37: stopped autoplay ---------------------------------------- */
+
+/* Only ever set on a billboard video we are confident about (see classify() in
+   browse.js). Netflix has already loaded the still hero artwork behind the
+   motion layer, so taking the video out of the way reveals the page as it
+   looks once a trailer has finished — rather than a frame frozen mid-pan.
+
+   opacity rather than display:none: Netflix measures and animates these
+   layers, and removing one from layout invites a fight we do not need to have.
+   !important because the motion layer's opacity is exactly the property
+   Netflix animates inline. */
+video.nrx-browse-stilled {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+/* --- feature 42: hidden entries ------------------------------------------ */
+
+/* The whole Continue Watching row, header included. !important for the cascade
+   reason in the header comment: a row that is only partly hidden reads as a
+   rendering bug rather than as a setting. */
+.nrx-browse-row-hidden {
+  display: none !important;
+}
+
+/* One dismissed title, hidden at its slider slot so the row closes up rather
+   than showing a gap where the card was. Same !important, same reason. */
+.nrx-browse-hidden {
+  display: none !important;
+}
+
+/* --- the dismiss control ------------------------------------------------- */
+
+/* content.css already gives badged cards a positioning context via .nrx-host,
+   but a card whose rating has not resolved yet has never been through that
+   code. This restates it so the button is pinned to the card rather than
+   escaping to some far ancestor. */
+.nrx-browse-anchor {
+  position: relative;
+}
+
+/* Top-LEFT, which is the corner content.css leaves free on Netflix: the badge
+   is pinned top-right there, and a progress card never carries the TOP 10
+   ribbon that owns this corner elsewhere. */
+.nrx-browse-dismiss {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+
+  /* One above the badge's z-index of 5, so the two never argue over a corner
+     they do not share anyway. */
+  z-index: 6;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  box-sizing: border-box;
+
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.82);
+
+  color: #f2f2f2;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+
+  cursor: pointer;
+  user-select: none;
+
+  /* Discreet: invisible until the card is hovered or something inside it takes
+     focus. Hidden rather than absent, so it costs no layout work per card and
+     is there the instant the cursor arrives — Netflix expands the card about
+     400ms after that, and a control that faded in slowly would be covered
+     before it was usable. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nrx-browse-anchor:hover .nrx-browse-dismiss,
+.nrx-browse-anchor:focus-within .nrx-browse-dismiss,
+.nrx-browse-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.nrx-browse-dismiss:hover {
+  background: #000;
+  border-color: #fff;
+}
+
+/* :focus-visible rather than :focus, matching content.css: the ring is for the
+   keyboard user who tabbed here, not the mouse user who just clicked. */
+.nrx-browse-dismiss:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* The copy sitting on an open hover preview, which covers the card and the
+   button on it. Bigger, and top-right, because the preview's own controls run
+   along the bottom and its progress bar along the top-left. */
+.nrx-browse-dismiss--modal {
+  top: 8px;
+  right: 8px;
+  left: auto;
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+
+  /* Netflix's preview modal stacks its own layers well above the row, so this
+     one needs to clear them rather than the card's neighbours. Still far below
+     the toast, which must sit over everything. */
+  z-index: 1001;
+}
+
+/* --- the undo toast ------------------------------------------------------ */
+
+/* Hiding a title is easy to do by accident and, without this, undoable only
+   from the options page. Fixed to the bottom of the window rather than to the
+   row, because the row has just moved. */
+.nrx-browse-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+
+  /* Netflix's player chrome sits around z-index 1000; the contract puts our
+     overlays at 2147483000+, the same neighbourhood as content.css's tooltip. */
+  z-index: 2147483000;
+
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(560px, 92vw);
+  padding: 11px 14px;
+  box-sizing: border-box;
+
+  border-radius: 5px;
+  background: #000;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), inset 0 0 0 1px #333;
+
+  color: #f2f2f2;
+  font-family: "Netflix Sans", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* A long title should wrap rather than push the Undo button off the toast —
+   the button is the whole point of it being there. */
+.nrx-browse-toast-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.nrx-browse-toast-undo {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #1f1f1f;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nrx-browse-toast-undo:hover {
+  background: #333;
+  border-color: #888;
+}
+
+.nrx-browse-toast-undo:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* --- reduced motion ------------------------------------------------------- */
+
+/* The only animation here is the dismiss button's fade. Someone who has asked
+   for less movement still needs the control to appear, so this removes the
+   transition rather than the state change. */
+@media (prefers-reduced-motion: reduce) {
+  .nrx-browse-dismiss {
+    transition: none;
+  }
+}

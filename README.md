@@ -78,6 +78,23 @@ worse answer than an unrated one with the right name.
 - **`content.css`** styles the badge. It sits top-right on purpose: Netflix
   uses the top-left corner for its TOP 10 ribbon and the bottom-left for
   "New Season" / "Recently added" tags.
+- **`browse.js`** stops autoplay previews and the billboard trailer, and hides
+  Continue Watching entries. The hiding is local: it writes to
+  `chrome.storage.local` and sets `display: none`, and never calls Netflix's own
+  removal endpoint, because that is an authenticated write to a real account.
+- **`pick.js`** picks something at random from the titles on the page that clear
+  your rating floor (Shift+P). It reads the badges rather than looking anything
+  up again, and it draws with `crypto.getRandomValues` — being genuinely random
+  is the only thing a randomiser has to offer.
+- **`player.js`** skips intros and recaps, widens the playback-speed range and
+  adds a few keys Netflix does not provide.
+- **`subtitles.js`** restyles subtitles. It never queries inside the player: it
+  writes custom properties on `<html>` and lets a stylesheet do the work, so if
+  Netflix's markup changes the feature stops working rather than breaking
+  playback.
+- **`exporter.js`** writes My List or your viewing history to a CSV or JSON file
+  (Shift+E). Nothing leaves the machine — the file is built in the page and
+  handed straight to the browser.
 - **`preview.html`** is a local harness for eyeballing the badge and tooltip
   without loading the extension. Not part of the extension itself.
 - **`tools/make_icons.py`** draws the icons. There was no image library on the
@@ -89,6 +106,22 @@ worse answer than an unrated one with the right name.
 Badges only appear on cards you actually scroll to, and a Netflix tab sitting
 in the background is left alone entirely — browsers suspend the visibility
 observer that drives lookups when a tab isn't being displayed.
+
+## Keyboard
+
+| Chord | Does |
+| --- | --- |
+| `Shift`+`B` | Hide every badge, for when you want the artwork unobstructed |
+| `Shift`+`G` | The hidden-genre picker |
+| `Shift`+`P` | Pick something for me |
+| `Shift`+`E` | Export My List or viewing history |
+| `[` `]` `\` | Slower, faster, back to 1x — while playing |
+| `j` `l` | Back and forward 30 seconds — Netflix's own arrows do 10 |
+| `n` `c` | Next episode, and hide the subtitles on screen |
+
+The four bare letters can be switched off in settings, separately from the speed
+keys. They are the one chord space Netflix itself uses, so they are the ones
+that might have to be given up.
 
 ## Coverage
 

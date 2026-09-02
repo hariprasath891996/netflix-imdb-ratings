@@ -4,7 +4,12 @@ Most of this list is sorted by one test: **does it change whether you pick a
 better film?** That is core; the rest is polish. Two groups answer a different
 question and are tiered separately — **Watching** improves the viewing rather
 than the choosing, and **Capture** is about getting text and images off the
-page. Together those two are the candidate paid tier.
+page. Together those two are the candidate paid tier, because they are the only
+features that touch no IMDb data and so are the only ones that could ever be
+sold.
+
+Watching shipped in v0.4.0. Capture has not been started, and #45 probably
+should not be built here at all — see the note on it.
 
 **Verified** means someone watched it work in a browser: ✓ seen working,
 ~ partly, — never observed. It is tracked separately from shipped because most
@@ -36,6 +41,8 @@ the same thing.
 | 19 | Per-platform badge corner | ✓ | All 14 live badges carry the Netflix corner |
 | 20 | Rating restated inside the hover preview | ✗ | **Never once reachable** — see risks |
 | 21 | Is it finished, or still running | ✗ | Same surface as #20, so the same problem |
+| 33 | Year disambiguation | — | An unrated exact-year match now beats a rated far-year one, so a badge can become an honest "no rating" where it used to show a confident wrong number. Film tolerance is tighter than series |
+| 34 | Preview-panel features made reachable | — | The chip's wrong-rating bug is fixed and run status moved onto the badge. **This was the worst bug the project has produced**: 25 identical chips on a detail page, each stamping one film's rating onto unrelated titles |
 
 ## Shipped — good to have
 
@@ -52,42 +59,39 @@ the same thing.
 | 30 | Preview harness (`preview.html`) | ✓ | |
 | 31 | Modifier-click a badge to open IMDb | ✓ | Every badge linkable; the tooltip names the chord |
 | 32 | Shift+B hides all badges | — | |
+| 35 | Firefox port | — | Manifest, a drift check and BUILD.md. **Developer build only** — untested in Firefox, needs a `webextension-polyfill` decision before it ships |
+| 36 | Disney+ | ✗ | Shipped and marked UNVERIFIED in the source. `disneyplus.com` redirects to JioHotstar from India, so it cannot be tested from here at all |
 
-## Pending — core
+## Shipped — watching (v0.4.0)
 
-| # | Feature | Blocker |
-| ---: | --- | --- |
-| 33 | Year disambiguation | The IMDb half is done — `startYear` is imported and returned. What is missing is a year from *Netflix* to compare against. 43% of titles share a name with another entry, and type alone cannot separate a 2011 series from a 2024 one |
-| 34 | Move the preview-panel features somewhere reachable | The chip and run-status live in Netflix's hover preview, which never opened once in testing. This is the same fault that killed the season strip, and it is still unfixed for the two features that remain there |
+Everything in this group uses **no IMDb data** except #39, which reads badges
+already on the page. That is deliberate and it is the commercial point: IMDb
+publishes its datasets for non-commercial use only, so the ratings can never be
+sold. These can.
 
-## Pending — good to have
+Nothing in this table has been seen running. It was built in one parallel round
+by six agents, each of which reported its own unverified assumptions rather than
+presenting them as fact — those are recorded per row.
 
-| # | Feature | Blocker |
-| ---: | --- | --- |
-| 35 | Firefox port | Manifest V3 with small changes; only worth it if Firefox is used |
-| 36 | Disney+ | **Blocked**: `disneyplus.com` redirects to JioHotstar from India, so it can be neither tested nor supported from here |
-
-## Pending — watching
-
-| # | Feature |
-| ---: | --- |
-| 37 | Stop autoplay previews on hover |
-| 38 | Auto-skip intro, recap and next-episode |
-| 39 | Randomiser — pick one for me |
-| 40 | Playback speed, wider range and persistent |
-| 41 | Keyboard shortcuts |
-| 42 | Remove "Continue Watching" entries |
-| 43 | Subtitle styling |
+| # | Feature | Verified | The assumption that would silently break it |
+| ---: | --- | :---: | --- |
+| 37 | Stop autoplay previews and the billboard trailer | — | Nothing — a capture-phase `play` listener, since Netflix's CSP blocks patching the page world. Four guards keep it off real playback: the `/watch` check is read at event time, any video over 900s is left alone, and a 1200ms user-gesture grace keeps the billboard's own replay control working |
+| 38 | Auto-skip intro, recap and credits | — | **The player root selector.** If it is wrong, auto-skip never fires at all. A denylist blocks auto-clicking anything matching `control-\|back\|close\|exit\|delete`, and credits-skip needs 75% elapsed, so a wrong match cannot advance an episode |
+| 39 | Pick something for me (Shift+P) | — | Reads `.nrx-badge` datasets, so it degrades with the badge rather than separately. Uses `crypto.getRandomValues` with rejection sampling, not `% n` |
+| 40 | Playback speed, `[` `]` `\` | — | That `playbackRate` survives Netflix's source swap. Re-apply is budgeted to 3 per episode, then concedes rather than fighting in a loop |
+| 41 | In-player keys `j` `l` `n` `c` | — | These are bare letters — the one chord space Netflix itself uses — so `playerShortcuts` exists to give them up. Independent of the speed keys |
+| 42 | Hide Continue Watching entries | — | **Local hiding only.** No call to Netflix's removal endpoint, no authenticated write, nothing server-side. The whole write surface is `chrome.storage.local` and `display: none`. Riskiest failure: if the card attributes change, the row-ancestor walk hides more of the homepage than intended — bounded, and only when the setting is on (default off) |
+| 43 | Subtitle styling | — | **`.player-timedtext-text-container`.** The JS never queries inside the player — it writes custom properties on ``<html>`` and lets CSS do the rest — so a wrong selector means nothing happens rather than a broken player. `subsLift` is in vh, which only equals video height in fullscreen: a known limit of the unit |
+| 48 | Export My List and viewing history (Shift+E) | ~ | CSV escaping was tested in Node against 15 adversarial rows — embedded quotes, newlines, formula injection, Korean/Japanese/Devanagari — with 0 round-trip mismatches. The **download itself** is reasoned from the platform contract, never run |
 
 ## Pending — capture
 
 | # | Feature | Note |
 | ---: | --- | --- |
 | 44 | Subtitle and transcript capture | Rests on an unverified assumption: that Netflix still renders subtitles as DOM text |
-| 45 | Vocabulary and phrase lookup | Largest build here, against an established incumbent, but the clearest evidence of a paying market |
+| 45 | Vocabulary and phrase lookup | Largest build here, against an established incumbent, and the clearest evidence of a paying market — but it serves language learners, not people who cannot pick a film. **The strongest candidate for a separate extension**, not a bundled feature |
 | 46 | Timestamp bookmarks with notes | |
 | 47 | Save the artwork | Ordinary CDN images, outside the DRM boundary |
-| 48 | Export My List and viewing history | |
 
 Frame capture is not on this list and will not be: Netflix video is
 Widevine-protected, and working around that is DRM circumvention.
@@ -113,6 +117,14 @@ Widevine-protected, and working around that is DRM circumvention.
 | Native `title` tooltip | `pointer-events: none` made it unhoverable, and Netflix's autoplay outran it |
 
 ---
+
+# The original reasoning, kept
+
+Everything below is the argument that produced the list above, written before
+any of it existed. It is left unedited on purpose: several items it calls
+future work have since shipped, and one it argues hard for was built and then
+removed. Reading it against the tables is the clearest record of which
+predictions held.
 
 ## Core
 

@@ -59,12 +59,14 @@
       body { width: 520px; padding: 40px 24px 84px; }
       .page-head { margin-bottom: 20px; }
       .stack { gap: 14px; }
-      .card { padding: 18px; }
+      .card-head { padding: 14px 18px; }
+      .card-body { padding: 0 18px 18px; }
       h1 { font-size: 19px; }
       /* Every genre fits without a scroller at this width, and a scroller
          inside a page that isn't scrolling reads as a bug. */
       .chips { max-height: none; }
       .summary { margin-bottom: 14px; padding: 11px 13px; }
+      .subs-stage { height: 156px; }
     }
 
     h1 {
@@ -94,6 +96,22 @@
       clip-path: inset(50%); white-space: nowrap; border: 0;
     }
 
+    /* --- groups -----------------------------------------------------------
+       Eleven cards is more page than anyone scrolls looking for one switch,
+       so the cards are sorted into three answers to "what am I here to
+       change": what the ratings do, what happens around the video, and what
+       to press when something looks wrong. The heading is a signpost, not a
+       control — it never collapses, so the shape of the page is constant. */
+    .group + .group { margin-top: 20px; }
+
+    .group-head {
+      margin: 0 0 8px;
+      padding: 0 3px;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: .09em; text-transform: uppercase;
+      color: var(--text-3);
+    }
+
     /* --- sections ---------------------------------------------------------
        Each setting is its own card. The previous <hr>s drew a line between
        two piles of text; a card gives the heading, the explanation and the
@@ -101,16 +119,53 @@
     .stack { display: flex; flex-direction: column; gap: 12px; }
 
     .card {
-      padding: 14px;
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: var(--r-3);
     }
-    /* One spacing rhythm for every card: 12px between blocks, 5px between a
-       heading and the sentence that belongs to it. */
-    .card > * { margin: 0; }
-    .card > * + * { margin-top: 12px; }
-    .card > h2 + .hint { margin-top: 5px; }
+
+    /* --- the card header ---------------------------------------------------
+       Every card is collapsible and every closed card still says what it is
+       set to, so the page can be read as a list of current answers and opened
+       only where one is wrong. Same disclosure vocabulary as the genre row
+       below — button, value, chevron — because it is the same gesture. */
+    .card-h { margin: 0; font-size: inherit; font-weight: inherit; }
+
+    .card-head {
+      appearance: none;
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 12px 14px;
+      background: transparent; color: var(--text);
+      border: 0; border-radius: var(--r-3);
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      letter-spacing: -0.005em; text-align: left;
+      cursor: pointer;
+      transition: background-color .12s ease;
+    }
+    .card-head:hover { background: #1d1d1d; }
+    /* Inset, because an outline outside the button would be clipped by the
+       card's own rounded border. */
+    .card-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+    .card-head[aria-expanded="true"] { border-radius: var(--r-3) var(--r-3) 0 0; }
+
+    .card-title { flex: none; }
+
+    .card-value {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-align: right;
+      font-size: 12px; font-weight: 600; color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+    .card-value[data-on="yes"]  { color: var(--green); }
+    .card-value[data-on="busy"] { color: var(--amber); }
+    .card-value[data-on="bad"]  { color: var(--red); }
+
+    .card-body { padding: 0 14px 14px; }
+    /* One spacing rhythm for every card: 12px between blocks, and the header
+       above already supplies the space at the top. */
+    .card-body > * { margin: 0; }
+    .card-body > * + * { margin-top: 12px; }
 
     /* --- buttons ----------------------------------------------------------- */
     .btn {
@@ -140,6 +195,16 @@
     .row { display: flex; gap: 8px; }
     .row > .btn { flex: 1; }
 
+    /* A keyboard shortcut nobody can see is a shortcut nobody has. */
+    kbd {
+      display: inline-block; min-width: 20px; padding: 1px 5px;
+      background: #232323; color: var(--text);
+      border: 1px solid var(--line-hi); border-bottom-width: 2px;
+      border-radius: 4px;
+      font-family: inherit; font-size: 11px; font-weight: 700; line-height: 1.45;
+      text-align: center;
+    }
+
     /* --- dataset status ---------------------------------------------------- */
     .state {
       display: flex; align-items: center; gap: 9px;
@@ -153,8 +218,48 @@
     .state[data-ok="busy"] .dot { background: var(--amber); animation: pulse 1.4s ease-in-out infinite; }
     .state[data-ok="no"]   .dot { background: var(--red); }
 
+    /* One row per imported file. Same dot vocabulary as .state above, keyed
+       off the row's own state so the three files can disagree. */
+    .dsets {
+      display: flex; flex-direction: column;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
+    }
+    .dset {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 11px;
+      font-size: 12.5px;
+    }
+    .dset + .dset { border-top: 1px solid var(--line); }
+    .dset-name { flex: none; font-weight: 600; }
+    .dset-note {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-align: right; color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+    .dset[data-state="ready"]   .dot { background: var(--green); }
+    .dset[data-state="stale"]   .dot { background: var(--amber); }
+    .dset[data-state="busy"]    .dot { background: var(--amber); animation: pulse 1.4s ease-in-out infinite; }
+    .dset[data-state="failed"]  .dot { background: var(--red); }
+    .dset[data-state="failed"]  .dset-note { color: var(--red); }
+
     @keyframes pulse { 50% { opacity: .3; } }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* --- the diagnosis read-out -------------------------------------------- */
+    .diag {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 11px;
+      background: var(--sunken); border: 1px solid var(--line);
+      border-radius: var(--r-2);
+      font-size: 12px; line-height: 1.4;
+    }
+    .diag-line { display: flex; gap: 8px; align-items: baseline; color: var(--text-2); }
+    .diag-line b { color: var(--text); font-weight: 600; }
+    .diag-mark { flex: none; width: 12px; text-align: center; color: var(--text-3); }
+    .diag-line[data-k="ok"] .diag-mark { color: var(--green); }
+    .diag-line[data-k="no"] .diag-mark { color: var(--red); }
 
     /* --- fixing a wrong match ---------------------------------------------- */
     .find { display: flex; gap: 8px; }
@@ -167,10 +272,17 @@
       font-family: inherit; font-size: 12.5px; line-height: 1.4;
       transition: border-color .12s ease;
     }
+    /* The diagnosis box and the font menu are on their own line rather than in
+       a flex row, where flex:1 alone would leave them at their default width. */
+    .field.block { display: block; width: 100%; }
     .field::placeholder { color: #7d7d7d; }
-    .field:hover { border-color: #454545; }
+    .field:hover:not(:disabled) { border-color: #454545; }
     .field:focus { outline: none; border-color: #5a5a5a; }
     .field:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+    .field:disabled { cursor: not-allowed; color: var(--text-3); }
+    /* The select keeps its native arrow: drawing our own risks a control with
+       no visible affordance if the substitute ever fails to paint. */
+    select.field { cursor: pointer; padding-right: 6px; }
 
     .mstatus {
       display: flex; align-items: center; gap: 8px;
@@ -313,12 +425,25 @@
     .switch input:checked + .toggle::after { transform: translateX(14px); background: #0b0b0b; }
     .switch input:focus-visible + .toggle { outline: 2px solid var(--focus); outline-offset: 2px; }
     .switch b { color: var(--green); font-variant-numeric: tabular-nums; }
+    /* A switch inside a disabled fieldset: the pointer says no, and the label
+       stops claiming to be clickable. */
+    .switch input:disabled + .toggle { opacity: .45; }
+    .switch:has(input:disabled) { cursor: not-allowed; color: var(--text-3); }
+
+    /* A second line under a switch's own label, for the consequence that
+       doesn't fit in five words. */
+    .switch-main { flex: 1; min-width: 0; }
+    .switch-main small {
+      display: block; margin-top: 2px;
+      font-size: 11.5px; line-height: 1.35; color: var(--text-3);
+    }
 
     .filter-min { transition: opacity .15s ease; }
     .filter-min[data-off="yes"] { opacity: .4; }
 
-    /* Shared by both sliders on the page — the dim threshold and the runtime
-       maximum — so the two look like the same control doing different jobs. */
+    /* Shared by every slider on the page — the dim threshold, the runtime
+       maximum, the random-pick floor and the three subtitle scales — so they
+       all look like the same control doing different jobs. */
     .rng {
       display: block; width: 100%; margin: 0;
       accent-color: var(--green); cursor: pointer;
@@ -349,6 +474,20 @@
 
     .note { font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
 
+    /* A button that belongs to the sentence beside it rather than to the card:
+       "follow the green boundary again" is an undo for the slider above, and a
+       bordered .btn there would outrank the control it undoes. */
+    .linky {
+      appearance: none; background: none; border: 0; padding: 0;
+      font: inherit; color: var(--text-2);
+      text-decoration: underline; text-underline-offset: 2px;
+      cursor: pointer;
+    }
+    .linky:hover { color: var(--text); }
+    .linky:focus-visible {
+      outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px;
+    }
+
     /* --- the kind segmented control ---------------------------------------
        Three exclusive options at 340px: a select would hide two of them
        behind a click, and radios down the page would cost three lines.
@@ -375,6 +514,8 @@
       box-shadow: inset 0 0 0 1px var(--line-hi);
     }
     .seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .seg label:has(input:disabled) { cursor: not-allowed; }
+    .seg input:disabled + span { color: var(--text-3); }
 
     /* --- the genre picker --------------------------------------------------
        21 genres is four rows of checkboxes that would dominate the page for a
@@ -412,7 +553,8 @@
       transform: rotate(45deg);
       transition: transform .15s ease;
     }
-    .disc[aria-expanded="true"] .chev { margin-top: 2px; transform: rotate(-135deg); }
+    .disc[aria-expanded="true"] .chev,
+    .card-head[aria-expanded="true"] .chev { margin-top: 2px; transform: rotate(-135deg); }
 
     .chips {
       display: flex; flex-wrap: wrap; gap: 5px;
@@ -441,6 +583,59 @@
       color: #d7f5e0; font-weight: 600;
     }
     .chip[aria-pressed="true"]::before { content: "✓ "; color: var(--green); }
+
+    /* --- subtitle styling --------------------------------------------------
+       Every control in this card is a visual judgement, and none of them can
+       be judged from a number. The fieldset is used for the disabling because
+       it disables its descendants for real — a faded control that still takes
+       focus and still writes to storage is a lie. */
+    .fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+    .fields > * { margin: 0; }
+    .fields > * + * { margin-top: 12px; }
+    .fields:disabled { opacity: .45; }
+
+    /* A mini screen. The gradient is a stand-in for a dark scene: light enough
+       at the top that "no backdrop" is legible, dark enough at the bottom that
+       the difference between shadow, outline and box is the thing you see. */
+    .subs-stage {
+      position: sticky; top: 6px; z-index: 2;
+      height: 132px; overflow: hidden;
+      border: 1px solid var(--line); border-radius: var(--r-2);
+      background:
+        radial-gradient(115% 85% at 50% 6%, #33404f 0%, #1b2129 48%, #0b0d10 100%);
+    }
+    /* Positioned from the bottom because that is what the lift control means:
+       a percentage of the picture's height, off the bottom edge. */
+    .subs-lines {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 6px 10px;
+      text-align: center; line-height: 1.3;
+      font-weight: 500;
+    }
+    .subs-row + .subs-row { margin-top: 2px; }
+    .subs-line {
+      /* Inline, so the box backdrop hugs the words rather than the column. */
+      display: inline;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
+
+    .colour-row { display: flex; align-items: center; gap: 10px; }
+    .colour {
+      flex: none; width: 46px; height: 30px; padding: 2px;
+      background: var(--sunken);
+      border: 1px solid #333; border-radius: var(--r-2);
+      cursor: pointer;
+    }
+    .colour::-webkit-color-swatch-wrapper { padding: 0; }
+    .colour::-webkit-color-swatch { border: 0; border-radius: 5px; }
+    .colour:hover:not(:disabled) { border-color: #454545; }
+    .colour:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .colour:disabled { cursor: not-allowed; }
+    .colour-hex {
+      font-size: 12px; color: var(--text-2);
+      font-variant-numeric: tabular-nums; text-transform: uppercase;
+    }
 
     /* --- the active-filter summary -----------------------------------------
        Five filters is more than anyone will re-read on opening the popup, so
@@ -491,6 +686,7 @@
       color: var(--green); font-size: 12px; font-weight: 600;
       pointer-events: none;
       transition: opacity .18s ease, transform .18s ease;
+      z-index: 5;
     }
     #status:empty { opacity: 0; transform: translate(-50%, 8px); }
     #status[data-kind="error"] { color: var(--red); }
@@ -505,6 +701,7 @@
         transition-duration: .001ms !important;
       }
       .state[data-ok="busy"] .dot { opacity: 1; }
+      .dset[data-state="busy"] .dot { opacity: 1; }
       .mstatus[data-kind="busy"]::before { display: none; }
       .btn:active:not(:disabled) { transform: none; }
     }
@@ -528,162 +725,572 @@
     <button id="clearFilters" type="button" class="btn quiet" hidden>Clear all</button>
   </section>
 
-  <main class="stack">
+  <main>
 
-    <section class="card" aria-labelledby="h-data">
-      <h2 id="h-data">IMDb data</h2>
-      <p class="hint">Three files, downloaded to this machine. Ratings power the
-        badges; metadata and episodes power season strips, filters, and
-        finished&nbsp;/&nbsp;still&nbsp;running.</p>
-      <div class="dsets" id="dsets"></div>
-      <div class="row">
-        <button id="refresh" type="button" class="btn primary">Refresh ratings</button>
-        <button id="clearTitles" type="button" class="btn">Clear matches</button>
+    <section class="group" aria-labelledby="g-ratings">
+      <h2 class="group-head" id="g-ratings">Ratings</h2>
+      <div class="stack">
+
+        <section class="card" data-card="data" aria-labelledby="h-data">
+          <h3 class="card-h" id="h-data">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-data">
+              <span class="card-title">IMDb data</span>
+              <span class="card-value" id="v-data">checking…</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-data" hidden>
+            <p class="hint">Three files, downloaded to this machine. Ratings power the
+              badges; metadata and episodes power season strips, filters, and
+              finished&nbsp;/&nbsp;still&nbsp;running.</p>
+            <div class="dsets" id="dsets"></div>
+            <div class="row">
+              <button id="refresh" type="button" class="btn primary">Refresh ratings</button>
+              <button id="clearTitles" type="button" class="btn">Clear matches</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" data-card="colours" aria-labelledby="h-colours">
+          <h3 class="card-h" id="h-colours">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-colours">
+              <span class="card-title">Rating colours</span>
+              <span class="card-value" id="v-colours">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-colours" hidden>
+            <p class="hint">Drag to move where the colours change. Netflix updates as you drag.</p>
+
+            <div class="scale" id="scale" role="group" aria-label="Colour thresholds">
+              <div class="track">
+                <div class="band low"  id="bandLow"></div>
+                <div class="band mid"  id="bandMid"></div>
+                <div class="band high" id="bandHigh"></div>
+              </div>
+              <div class="ticks" aria-hidden="true"><span>0</span><span>5</span><span>10</span></div>
+              <button class="handle" id="handleMid" type="button" role="slider"
+                      aria-label="Where red becomes amber"
+                      aria-valuemin="0" aria-valuemax="10"></button>
+              <button class="handle" id="handleHigh" type="button" role="slider"
+                      aria-label="Where amber becomes green"
+                      aria-valuemin="0" aria-valuemax="10"></button>
+            </div>
+
+            <div class="legend">
+              <div class="l">skip<b id="lblLow">—</b></div>
+              <div class="m">maybe<b id="lblMid">—</b></div>
+              <div class="h">worth it<b id="lblHigh">—</b></div>
+            </div>
+
+            <div class="row">
+              <button id="resetTiers" type="button" class="btn quiet">Reset to defaults</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" data-card="dim" aria-labelledby="h-dim">
+          <h3 class="card-h" id="h-dim">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-dim">
+              <span class="card-title">Dim what I'd skip</span>
+              <span class="card-value" id="v-dim">Off</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-dim" hidden>
+            <p class="hint">Pushes low-rated titles into the background, so a row reads as a shortlist.
+              Titles with no rating are never dimmed — no rating isn't a bad rating.</p>
+
+            <label class="switch" for="filterEnabled">
+              <input type="checkbox" id="filterEnabled" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span>Dim anything below <b id="filterMinLabel">7.5</b></span>
+            </label>
+
+            <div class="filter-min" id="filterMinWrap">
+              <label class="sr-only" for="filterMin">Dim below this rating</label>
+              <!-- Matches the label's printed default, so the two don't disagree for
+                   the frame before the saved value loads. -->
+              <input class="rng" type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
+              <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" data-card="narrow" aria-labelledby="h-narrow">
+          <h3 class="card-h" id="h-narrow">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-narrow">
+              <span class="card-title">Narrow it down</span>
+              <span class="card-value" id="v-narrow">Any</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-narrow" hidden>
+            <p class="hint">Three more ways to decide what recedes. Anything that fails one of these
+              dims exactly like a low rating does — nothing is removed, and a title with no data
+              is never dimmed by any of them.</p>
+
+            <div class="ctl">
+              <div class="ctl-head">
+                <label for="filterRuntime">Maximum length</label>
+                <b id="runtimeLabel" data-on="no">Any</b>
+              </div>
+              <!-- Slider and its end labels are one block, so the column's gap doesn't
+                   open up between a scale and the numbers that label it. -->
+              <div>
+                <!-- Starts at the far right, which is the off position — see options.js. -->
+                <input class="rng" type="range" id="filterRuntime" min="60" max="240" step="5" value="240"
+                       aria-describedby="runtimeNote">
+                <div class="ends" aria-hidden="true"><span>1h</span><span>Any</span></div>
+              </div>
+              <p class="note" id="runtimeNote">Films only. IMDb's runtime for a series is one
+                episode, not the whole thing, so series are never dimmed by length.</p>
+            </div>
+
+            <div class="ctl">
+              <div class="ctl-head">
+                <span id="kindLabel">Show only</span>
+              </div>
+              <div class="seg" role="radiogroup" aria-labelledby="kindLabel">
+                <label>
+                  <input type="radio" name="filterKinds" value="all" checked><span>Everything</span>
+                </label>
+                <label>
+                  <input type="radio" name="filterKinds" value="movies"><span>Films</span>
+                </label>
+                <label>
+                  <input type="radio" name="filterKinds" value="series"><span>Series</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="ctl">
+              <!-- The closed row is this control's heading as well as its trigger:
+                   it reads "Genres … Any" on one line, in step with the two above. -->
+              <div class="disc-row">
+                <button id="genreToggle" type="button" class="disc"
+                        aria-expanded="false" aria-controls="genrePanel">
+                  <span>Genres</span>
+                  <span class="disc-value" id="genreValue" data-on="no">Any</span>
+                  <span class="chev" aria-hidden="true"></span>
+                </button>
+                <button id="genreClear" type="button" class="btn quiet" hidden>Clear</button>
+              </div>
+              <!-- Chips are built in options.js from one list, so the vocabulary has
+                   a single home rather than 21 hand-written buttons to keep in sync. -->
+              <div class="chips" id="genrePanel" role="group" aria-label="Genres" hidden></div>
+            </div>
+          </div>
+        </section>
+
       </div>
     </section>
 
-    <section class="card" aria-labelledby="h-diag">
-      <h2 id="h-diag">Why isn't this showing?</h2>
-      <p class="hint">Nearly everything here fails quietly on purpose — a wrong
-        badge is worse than no badge. This says out loud what the extension
-        found for a title, and what it decided to draw.</p>
-      <label class="sr-only" for="diagTitle">Title to diagnose</label>
-      <input id="diagTitle" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Title as the card spells it, e.g. Suits">
-      <div class="row">
-        <button id="diagRun" type="button" class="btn primary">Diagnose</button>
+    <!-- Everything in this group moves Netflix's own furniture and reads no
+         IMDb data, apart from the floor on the random pick. -->
+    <section class="group" aria-labelledby="g-watch">
+      <h2 class="group-head" id="g-watch">Watching</h2>
+      <div class="stack">
+
+        <section class="card" data-card="browse" aria-labelledby="h-browse">
+          <h3 class="card-h" id="h-browse">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-browse">
+              <span class="card-title">Browse</span>
+              <span class="card-value" id="v-browse">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-browse" hidden>
+            <p class="hint">Netflix starts playing things at you while you are still deciding.
+              These settings stop it. Nothing here changes your account — it is all local to
+              this browser and reversible.</p>
+
+            <label class="switch" for="stopAutoplayPreviews">
+              <input type="checkbox" id="stopAutoplayPreviews" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Stop previews on hover
+                <small>The trailer that starts when the cursor rests on a card.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="stopAutoplayBillboard">
+              <input type="checkbox" id="stopAutoplayBillboard" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Stop the big trailer
+                <small>The one across the top of the homepage.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="hideContinueWatching">
+              <input type="checkbox" id="hideContinueWatching" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Hide Continue Watching
+                <small>Hides the row here only. Your progress is untouched.</small>
+              </span>
+            </label>
+
+            <!-- Absent rather than empty: a control that says "0 hidden" is a
+                 control asking to be understood before it can be ignored. -->
+            <div class="ctl" id="hiddenWrap" hidden>
+              <div class="ctl-head">
+                <span id="hiddenLabel">Titles you've hidden</span>
+                <b id="hiddenCount">0</b>
+              </div>
+              <p class="note">Hidden on this browser only — nothing was removed from Netflix.</p>
+              <div class="row">
+                <button id="hiddenClear" type="button" class="btn quiet"
+                        aria-describedby="hiddenLabel">Show them all again</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" data-card="pick" aria-labelledby="h-pick">
+          <h3 class="card-h" id="h-pick">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-pick">
+              <span class="card-title">Pick something for me</span>
+              <span class="card-value" id="v-pick">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-pick" hidden>
+            <p class="hint">Press <kbd>Shift</kbd>&nbsp;+&nbsp;<kbd>P</kbd> on Netflix and it
+              chooses one title from what is on the page — the twenty minutes of scrolling,
+              done in a keystroke.</p>
+
+            <div class="ctl">
+              <div class="ctl-head">
+                <label for="pickMinRating">Rated at least</label>
+                <b id="pickMinLabel">7.5</b>
+              </div>
+              <div>
+                <input class="rng" type="range" id="pickMinRating" min="0" max="10" step="0.1" value="7.5"
+                       aria-describedby="pickMinSource pickMinNote">
+                <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
+              </div>
+              <!-- Which of the two this number is — the green boundary, or a
+                   floor set here — is written by options.js on every paint. The
+                   inherited wording is seeded so the line doesn't start blank;
+                   it is the state a new install is in. -->
+              <p class="note" id="pickMinSource">
+                <span id="pickMinSourceText">Following the green boundary from Rating colours —
+                  move the slider to give the pick a floor of its own.</span>
+                <button id="pickMinFollow" type="button" class="linky" hidden>Follow it again</button>
+              </p>
+              <p class="note" id="pickMinNote">If nothing on the page clears this, it says so
+                rather than picking something you'd have skipped.</p>
+            </div>
+
+            <div class="ctl">
+              <div class="ctl-head">
+                <span id="pickKindLabel">Pick from</span>
+              </div>
+              <div class="seg" role="radiogroup" aria-labelledby="pickKindLabel">
+                <label>
+                  <input type="radio" name="pickKinds" value="all" checked><span>Everything</span>
+                </label>
+                <label>
+                  <input type="radio" name="pickKinds" value="movies"><span>Films</span>
+                </label>
+                <label>
+                  <input type="radio" name="pickKinds" value="series"><span>Series</span>
+                </label>
+              </div>
+            </div>
+
+            <label class="switch" for="pickIncludeUnrated">
+              <input type="checkbox" id="pickIncludeUnrated" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Include unrated titles
+                <small>An unrated title is an unknown one, not a bad one — same position the
+                  dimming takes. Off keeps the pick to titles with a score.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card" data-card="player" aria-labelledby="h-player">
+          <h3 class="card-h" id="h-player">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-player">
+              <span class="card-title">While you watch</span>
+              <span class="card-value" id="v-player">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-player" hidden>
+            <p class="hint">Netflix already draws these buttons; this presses them for you.
+              Speed is <kbd>[</kbd> slower, <kbd>]</kbd> faster and <kbd>\</kbd> back to
+              normal, in the player only.</p>
+
+            <label class="switch" for="playerSkipIntro">
+              <input type="checkbox" id="playerSkipIntro" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Skip the intro
+                <small>Presses Skip Intro as soon as it appears.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="playerSkipRecap">
+              <input type="checkbox" id="playerSkipRecap" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Skip the recap
+                <small>The same for "previously on".</small>
+              </span>
+            </label>
+
+            <label class="switch" for="playerSkipCredits">
+              <input type="checkbox" id="playerSkipCredits" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Skip the credits
+                <small>Starts the next episode when the credits roll. Off by default: this one
+                  decides what plays next, and that should be your decision.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="playerSpeedEnabled">
+              <input type="checkbox" id="playerSpeedEnabled" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Speed keys
+                <small><kbd>[</kbd> and <kbd>]</kbd> move in steps; <kbd>\</kbd> returns to 1×.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="playerSpeedPersist">
+              <input type="checkbox" id="playerSpeedPersist" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Keep the speed between episodes
+                <small>The next episode also plays at that speed. Off, every episode starts
+                  at 1× again.</small>
+              </span>
+            </label>
+
+            <label class="switch" for="playerShortcuts">
+              <input type="checkbox" id="playerShortcuts" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Single-letter player keys
+                <small><kbd>j</kbd> <kbd>l</kbd> <kbd>n</kbd> <kbd>c</kbd> do things inside the
+                  player. Netflix uses bare letters too, so this is the way out if they ever
+                  collide.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card" data-card="subs" aria-labelledby="h-subs">
+          <h3 class="card-h" id="h-subs">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-subs">
+              <span class="card-title">Subtitles</span>
+              <span class="card-value" id="v-subs">Off</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-subs" hidden>
+            <p class="hint">Restyles the subtitles Netflix is already showing. It doesn't turn
+              them on, and it changes nothing on your account — only how they look in this
+              browser.</p>
+
+            <label class="switch" for="subsEnabled">
+              <input type="checkbox" id="subsEnabled" role="switch">
+              <span class="toggle" aria-hidden="true"></span>
+              <span class="switch-main">Use my subtitle styling
+                <small>Off, Netflix's own styling is left completely alone.</small>
+              </span>
+            </label>
+
+            <fieldset class="fields" id="subsFields" disabled>
+              <legend class="sr-only">Subtitle appearance</legend>
+
+              <p class="sr-only" id="subsPreviewNote">A preview below shows the sample line
+                "Are you coming, or not?" in the style these controls describe.</p>
+              <div class="subs-stage" id="subsStage" aria-hidden="true">
+                <div class="subs-lines" id="subsLines">
+                  <div class="subs-row"><span class="subs-line">Are you coming, or not?</span></div>
+                  <div class="subs-row"><span class="subs-line">I'm five minutes away.</span></div>
+                </div>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="subsFontSize">Size</label>
+                  <b id="subsFontSizeLabel">100%</b>
+                </div>
+                <div>
+                  <input class="rng" type="range" id="subsFontSize" min="50" max="250" step="5" value="100">
+                  <div class="ends" aria-hidden="true"><span>50%</span><span>250%</span></div>
+                </div>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="subsFontFamily">Typeface</label>
+                </div>
+                <select class="field block" id="subsFontFamily">
+                  <option value="">Netflix's own</option>
+                  <option value="system-ui, sans-serif">System</option>
+                  <option value="Arial, Helvetica, sans-serif">Arial</option>
+                  <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                  <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="&quot;Times New Roman&quot;, Times, serif">Times New Roman</option>
+                  <option value="&quot;Courier New&quot;, Courier, monospace">Courier New</option>
+                </select>
+                <p class="note">Verdana and Tahoma are the wide ones — easier at a distance.</p>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="subsColour">Colour</label>
+                  <span class="colour-hex" id="subsColourHex">#FFFFFF</span>
+                </div>
+                <div class="colour-row">
+                  <input class="colour" type="color" id="subsColour" value="#ffffff">
+                  <span class="note">Yellow reads well over snow and daylight.</span>
+                </div>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <span id="subsBackdropLabel">Behind the text</span>
+                </div>
+                <div class="seg" role="radiogroup" aria-labelledby="subsBackdropLabel">
+                  <label>
+                    <input type="radio" name="subsBackdrop" value="none"><span>None</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="subsBackdrop" value="shadow" checked><span>Shadow</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="subsBackdrop" value="outline"><span>Outline</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="subsBackdrop" value="box"><span>Box</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="subsOpacity">Solidity</label>
+                  <b id="subsOpacityLabel">100%</b>
+                </div>
+                <div>
+                  <input class="rng" type="range" id="subsOpacity" min="20" max="100" step="5" value="100">
+                  <div class="ends" aria-hidden="true"><span>20%</span><span>100%</span></div>
+                </div>
+              </div>
+
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="subsLift">Lift off the bottom</label>
+                  <b id="subsLiftLabel" data-on="no">None</b>
+                </div>
+                <div>
+                  <input class="rng" type="range" id="subsLift" min="0" max="40" step="1" value="0"
+                         aria-describedby="subsLiftNote">
+                  <div class="ends" aria-hidden="true"><span>0%</span><span>40%</span></div>
+                </div>
+                <p class="note" id="subsLiftNote">Raises the line up the picture, out from under
+                  the player's own controls.</p>
+              </div>
+            </fieldset>
+          </div>
+        </section>
+
+        <section class="card" data-card="export" aria-labelledby="h-export">
+          <h3 class="card-h" id="h-export">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-export">
+              <span class="card-title">Export</span>
+              <span class="card-value" id="v-export">CSV</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-export" hidden>
+            <p class="hint">Open your <b>My List</b> or your <b>viewing activity</b> page and
+              press <kbd>Shift</kbd>&nbsp;+&nbsp;<kbd>E</kbd>. The file saves straight to your
+              downloads.</p>
+
+            <div class="ctl">
+              <div class="ctl-head">
+                <span id="exportFormatLabel">Save as</span>
+              </div>
+              <div class="seg" role="radiogroup" aria-labelledby="exportFormatLabel">
+                <label>
+                  <input type="radio" name="exportFormat" value="csv" checked><span>CSV</span>
+                </label>
+                <label>
+                  <input type="radio" name="exportFormat" value="json"><span>JSON</span>
+                </label>
+              </div>
+              <p class="note">CSV opens in a spreadsheet. JSON keeps the structure for anything
+                that will read it back.</p>
+            </div>
+
+            <p class="note">Netflix only loads a list as you scroll it, and the export can only
+              see what the page has actually loaded — so scroll to the bottom first, or you
+              will get the top of your list rather than all of it.</p>
+          </div>
+        </section>
+
       </div>
-      <div class="diag" id="diagOut" hidden></div>
     </section>
 
-    <section class="card" aria-labelledby="h-match">
-      <h2 id="h-match">Fix a wrong match</h2>
-      <p class="hint" id="matchHint">Some titles land on the wrong IMDb entry — a sequel matched to
-        season one, or a namesake with 132 votes. Search the name exactly as the card shows it,
-        then pin the right one.</p>
+    <section class="group" aria-labelledby="g-fix">
+      <h2 class="group-head" id="g-fix">When something looks wrong</h2>
+      <div class="stack">
 
-      <form class="find" id="matchForm">
-        <label class="sr-only" for="matchTitle">Netflix title</label>
-        <input class="field" id="matchTitle" type="text" placeholder="Title as Netflix shows it"
-               autocomplete="off" autocapitalize="off" spellcheck="false"
-               aria-describedby="matchHint">
-        <button id="matchSearch" type="submit" class="btn primary">Search</button>
-      </form>
+        <section class="card" data-card="match" aria-labelledby="h-match">
+          <h3 class="card-h" id="h-match">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-match">
+              <span class="card-title">Fix a wrong match</span>
+              <span class="card-value"></span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-match" hidden>
+            <p class="hint" id="matchHint">Some titles land on the wrong IMDb entry — a sequel matched to
+              season one, or a namesake with 132 votes. Search the name exactly as the card shows it,
+              then pin the right one.</p>
 
-      <p class="mstatus" id="matchStatus" role="status" hidden></p>
-      <ul class="cands" id="matchList" hidden></ul>
+            <form class="find" id="matchForm">
+              <label class="sr-only" for="matchTitle">Netflix title</label>
+              <input class="field" id="matchTitle" type="text" placeholder="Title as Netflix shows it"
+                     autocomplete="off" autocapitalize="off" spellcheck="false"
+                     aria-describedby="matchHint">
+              <button id="matchSearch" type="submit" class="btn primary">Search</button>
+            </form>
 
-      <div class="row">
-        <button id="matchRetry" type="button" class="btn" hidden>Try again</button>
-        <button id="matchReset" type="button" class="btn quiet" disabled>Reset this title</button>
-      </div>
-    </section>
+            <p class="mstatus" id="matchStatus" role="status" hidden></p>
+            <ul class="cands" id="matchList" hidden></ul>
 
-    <section class="card" aria-labelledby="h-colours">
-      <h2 id="h-colours">Rating colours</h2>
-      <p class="hint">Drag to move where the colours change. Netflix updates as you drag.</p>
+            <div class="row">
+              <button id="matchRetry" type="button" class="btn" hidden>Try again</button>
+              <button id="matchReset" type="button" class="btn quiet" disabled>Reset this title</button>
+            </div>
+          </div>
+        </section>
 
-      <div class="scale" id="scale" role="group" aria-label="Colour thresholds">
-        <div class="track">
-          <div class="band low"  id="bandLow"></div>
-          <div class="band mid"  id="bandMid"></div>
-          <div class="band high" id="bandHigh"></div>
-        </div>
-        <div class="ticks" aria-hidden="true"><span>0</span><span>5</span><span>10</span></div>
-        <button class="handle" id="handleMid" type="button" role="slider"
-                aria-label="Where red becomes amber"
-                aria-valuemin="0" aria-valuemax="10"></button>
-        <button class="handle" id="handleHigh" type="button" role="slider"
-                aria-label="Where amber becomes green"
-                aria-valuemin="0" aria-valuemax="10"></button>
-      </div>
+        <section class="card" data-card="diag" aria-labelledby="h-diag">
+          <h3 class="card-h" id="h-diag">
+            <button type="button" class="card-head" aria-expanded="false" aria-controls="p-diag">
+              <span class="card-title">Why isn't this showing?</span>
+              <span class="card-value"></span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+          </h3>
+          <div class="card-body" id="p-diag" hidden>
+            <p class="hint">Nearly everything here fails quietly on purpose — a wrong
+              badge is worse than no badge. This says out loud what the extension
+              found for a title, and what it decided to draw.</p>
+            <label class="sr-only" for="diagTitle">Title to diagnose</label>
+            <input class="field block" id="diagTitle" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="Title as the card spells it, e.g. Suits">
+            <div class="row">
+              <button id="diagRun" type="button" class="btn primary">Diagnose</button>
+            </div>
+            <div class="diag" id="diagOut" hidden></div>
+          </div>
+        </section>
 
-      <div class="legend">
-        <div class="l">skip<b id="lblLow">—</b></div>
-        <div class="m">maybe<b id="lblMid">—</b></div>
-        <div class="h">worth it<b id="lblHigh">—</b></div>
-      </div>
-
-      <div class="row">
-        <button id="resetTiers" type="button" class="btn quiet">Reset to defaults</button>
-      </div>
-    </section>
-
-    <section class="card" aria-labelledby="h-dim">
-      <h2 id="h-dim">Dim what I'd skip</h2>
-      <p class="hint">Pushes low-rated titles into the background, so a row reads as a shortlist.
-        Titles with no rating are never dimmed — no rating isn't a bad rating.</p>
-
-      <label class="switch" for="filterEnabled">
-        <input type="checkbox" id="filterEnabled" role="switch">
-        <span class="toggle" aria-hidden="true"></span>
-        <span>Dim anything below <b id="filterMinLabel">7.5</b></span>
-      </label>
-
-      <div class="filter-min" id="filterMinWrap">
-        <label class="sr-only" for="filterMin">Dim below this rating</label>
-        <!-- Matches the label's printed default, so the two don't disagree for
-             the frame before the saved value loads. -->
-        <input class="rng" type="range" id="filterMin" min="0" max="10" step="0.1" value="7.5">
-        <div class="ends" aria-hidden="true"><span>0</span><span>10</span></div>
-      </div>
-    </section>
-
-    <section class="card" aria-labelledby="h-narrow">
-      <h2 id="h-narrow">Narrow it down</h2>
-      <p class="hint">Three more ways to decide what recedes. Anything that fails one of these
-        dims exactly like a low rating does — nothing is removed, and a title with no data
-        is never dimmed by any of them.</p>
-
-      <div class="ctl">
-        <div class="ctl-head">
-          <label for="filterRuntime">Maximum length</label>
-          <b id="runtimeLabel" data-on="no">Any</b>
-        </div>
-        <!-- Slider and its end labels are one block, so the column's gap doesn't
-             open up between a scale and the numbers that label it. -->
-        <div>
-          <!-- Starts at the far right, which is the off position — see options.js. -->
-          <input class="rng" type="range" id="filterRuntime" min="60" max="240" step="5" value="240"
-                 aria-describedby="runtimeNote">
-          <div class="ends" aria-hidden="true"><span>1h</span><span>Any</span></div>
-        </div>
-        <p class="note" id="runtimeNote">Films only. IMDb's runtime for a series is one
-          episode, not the whole thing, so series are never dimmed by length.</p>
-      </div>
-
-      <div class="ctl">
-        <div class="ctl-head">
-          <span id="kindLabel">Show only</span>
-        </div>
-        <div class="seg" role="radiogroup" aria-labelledby="kindLabel">
-          <label>
-            <input type="radio" name="filterKinds" value="all" checked><span>Everything</span>
-          </label>
-          <label>
-            <input type="radio" name="filterKinds" value="movies"><span>Films</span>
-          </label>
-          <label>
-            <input type="radio" name="filterKinds" value="series"><span>Series</span>
-          </label>
-        </div>
-      </div>
-
-      <div class="ctl">
-        <!-- The closed row is this control's heading as well as its trigger:
-             it reads "Genres … Any" on one line, in step with the two above. -->
-        <div class="disc-row">
-          <button id="genreToggle" type="button" class="disc"
-                  aria-expanded="false" aria-controls="genrePanel">
-            <span>Genres</span>
-            <span class="disc-value" id="genreValue" data-on="no">Any</span>
-            <span class="chev" aria-hidden="true"></span>
-          </button>
-          <button id="genreClear" type="button" class="btn quiet" hidden>Clear</button>
-        </div>
-        <!-- Chips are built in options.js from one list, so the vocabulary has
-             a single home rather than 21 hand-written buttons to keep in sync. -->
-        <div class="chips" id="genrePanel" role="group" aria-label="Genres" hidden></div>
       </div>
     </section>
 

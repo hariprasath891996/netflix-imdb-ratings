@@ -428,6 +428,16 @@ function stampMetadata(badge, result) {
   const minutes = Number(result.runtimeMinutes);
   if (Number.isFinite(minutes) && minutes > 0) badge.dataset.runtime = String(minutes);
 
+  // The year is already in the tooltip's first line, and exporter.js was
+  // parsing it back out of that string with a regex. That worked, but it made
+  // a display string load-bearing: rewording the tooltip would have silently
+  // emptied a column in the user's exported file, with nothing to catch it.
+  // The value is right here, so it is stamped as data instead.
+  const year = Number(result.startYear);
+  if (Number.isInteger(year) && year > 1870 && year < 2200) {
+    badge.dataset.year = String(year);
+  }
+
   if (Array.isArray(result.genres)) {
     // Lower-cased on both sides of the comparison, so a settings page that
     // stores "Sci-Fi" and a dataset that says "sci-fi" still mean the same

@@ -361,6 +361,34 @@
     return `https://www.netflix.com/browse/genre/${id}`;
   }
 
+  // --- the shared launcher --------------------------------------------------
+  // This file no longer owns the bottom-right corner. pick.js parks a trigger
+  // there too, so the corner is a container that neither file owns: whichever
+  // one runs first creates it, and the other finds it by selector.
+  //
+  // The manifest injects genres.js before pick.js, which makes this file the
+  // usual creator — but nothing here leans on that, because it is not reliably
+  // true. This file returns early off Netflix and pick.js does not, so on Prime
+  // Video the container is created by pick.js and this function never runs at
+  // all. Both directions have to work, so both are just "find it or make it".
+  //
+  // The contract is three things and no more:
+  //   - the container is `.nrx-launcher`;
+  //   - an item in it carries `nrx-launcher-item`, which is what takes the item
+  //     out of its own fixed positioning and hands the corner to the container;
+  //   - `data-launch` fixes the stacking order, so a re-mount after a Netflix
+  //     re-render cannot swap the two buttons round under the user's cursor.
+  // It is styled in pick.css, which is the file the launcher arrived with.
+  function launcher() {
+    let bar = document.querySelector(".nrx-launcher");
+    if (!bar || !bar.isConnected) {
+      bar = document.createElement("div");
+      bar.className = "nrx-launcher";
+      document.body.appendChild(bar);
+    }
+    return bar;
+  }
+
   // --- the list -------------------------------------------------------------
   // A flat search over ~190 rows is cheap enough to redo on every keystroke, so
   // there is no index to keep in sync with the data above.
@@ -607,20 +635,31 @@
     // page flow is no better: the browse page has no stable header block that
     // exists on every surface, and pushing one in would shift the hero.
     //
-    // So the trigger is taken out of the flow entirely: position:fixed in the
-    // bottom-right corner, a layer of its own, touching nothing. Netflix keeps
-    // that corner empty on every browse surface — its ribbons are top-left, its
+    // So the trigger is taken out of the flow entirely and lives in a fixed
+    // layer in the bottom-right corner, touching nothing. Netflix keeps that
+    // corner empty on every browse surface — its ribbons are top-left, its
     // hover previews grow from the row, its footer is below the fold — and the
     // corner is where a browser user already looks for an extension's own
     // controls. It is quiet at rest and only fully opaque under the pointer or
     // focus, so it reads as ours rather than as something Netflix added.
+    //
+    // What is no longer true — and used to be asserted here — is that the
+    // corner belongs to this file alone. pick.js has a trigger there too, so
+    // the fixed positioning is the launcher's job now, not this button's: it is
+    // appended to the shared container by mountTrigger() below and wears
+    // `nrx-launcher-item`, which is what neutralises the position:fixed
+    // genres.css still declares on it. Everything else about how it looks —
+    // the pill, the colours, the resting opacity, the focus ring — is still
+    // genres.css's, unchanged, and pick.js's button copies it so the two read
+    // as one control set.
     //
     // Findability is then split between two paths: the corner for the person
     // who will discover it by looking, and Shift+G for the person who uses it
     // twice a day and should not have to aim at a corner.
     trigger = document.createElement("button");
     trigger.type = "button";
-    trigger.className = "nrx-genre-trigger";
+    trigger.className = "nrx-genre-trigger nrx-launcher-item";
+    trigger.dataset.launch = "categories";
     trigger.textContent = "Categories";
     trigger.setAttribute("aria-haspopup", "dialog");
     trigger.setAttribute("aria-expanded", "false");
@@ -742,8 +781,22 @@
     footer.append(keys, caveat);
 
     panel.append(header, note, input, statusEl, listEl, footer);
-    container.append(trigger, backdrop, panel);
+    // The trigger is deliberately not in here. It belongs to the shared
+    // launcher, which is a sibling of this root on <body>; the root is now just
+    // the scrim and the panel.
+    container.append(backdrop, panel);
     return container;
+  }
+
+  // Idempotent, and safe to call when the launcher already holds pick.js's
+  // button: appendChild on a node that is already the last child is a no-op,
+  // and the parent check keeps it from re-ordering the stack on every sync.
+  // Order between the two buttons is CSS's job, not append order's, so this
+  // cannot swap them either way.
+  function mountTrigger() {
+    if (!trigger) return;
+    const bar = launcher();
+    if (trigger.parentElement !== bar) bar.appendChild(trigger);
   }
 
   // --- surviving Netflix ----------------------------------------------------
@@ -751,6 +804,11 @@
     if (!pickerBelongsHere()) {
       close();
       if (root && root.isConnected) root.remove();
+      // Our button leaves the launcher; the launcher itself is not ours to
+      // remove, and pick.js may still have a button in it. An empty one hides
+      // itself — see `.nrx-launcher:empty` in pick.css — so a corner with
+      // nothing left in it shows nothing at all rather than an empty box.
+      if (trigger && trigger.isConnected) trigger.remove();
       return;
     }
 
@@ -760,13 +818,18 @@
     // re-render that swept it away costs one appendChild rather than a rebuild
     // — and rebuilding would silently drop whatever the user had typed.
     if (!root.isConnected) document.body.appendChild(root);
+    mountTrigger();
 
     // Anything else claiming to be this picker — a stale copy from before a
     // re-render, or a second injection of this file — is removed rather than
     // left to sit under ours. This is what makes a duplicate trigger
-    // impossible rather than merely unlikely.
+    // impossible rather than merely unlikely. The trigger is now swept
+    // separately because it no longer lives inside the root.
     for (const stray of document.querySelectorAll(".nrx-genre-root")) {
       if (stray !== root) stray.remove();
+    }
+    for (const stray of document.querySelectorAll(".nrx-genre-trigger")) {
+      if (stray !== trigger) stray.remove();
     }
   }
 
