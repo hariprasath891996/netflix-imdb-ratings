@@ -26,10 +26,9 @@
 //   \   playback speed back to 1x
 //       Netflix's own speed menu stops at 0.5x and 1.5x. This runs 0.25x-4x.
 //
-//   j   back 30 seconds
-//   l   forward 30 seconds
-//       The arrows seek 10s, which is right for "what did they say" and
-//       useless for "skip this scene". Same letters YouTube uses.
+//   (no seek keys — j and l were removed after they were measured breaking
+//    playback outright. The reasoning is kept where seekBy used to live, so
+//    that anyone tempted to add them back reads the evidence first.)
 //
 //   n   next episode
 //       Netflix has the control but no key for it, so the only way to move on
@@ -43,14 +42,16 @@
 //       menu and writing the choice back to the account — and this extension
 //       does not write to anyone's Netflix account.
 //
-// Two switches, not one: [, ] and \ answer to `playerSpeedEnabled`, while j, l,
-// n and c answer to `playerShortcuts`. The second exists because those four are
+// Two switches, not one: [, ] and \ answer to `playerSpeedEnabled`, while n and
+// c answer to `playerShortcuts`. The second exists because those two are
 // unmodified single letters — Netflix's own chord space — so a future Netflix
 // binding really could collide with them in a way it cannot with the rest.
 //
-// Deliberately not bound: previous episode. Netflix's player has no previous
-// control to click, and a shortcut that silently does nothing is worse than an
-// absent one.
+// Deliberately not bound, both for the same reason: previous episode, because
+// Netflix's player has no previous control to click; and seeking, because the
+// only mechanism that worked broke playback and the safe one does nothing. A
+// shortcut that silently does nothing is worse than an absent one, and one that
+// kills the stream is worse than both.
 (function () {
   "use strict";
 
@@ -395,13 +396,33 @@
   }, { capture: true });
 
   // --- feature 41: the rest of the shortcuts -----------------------------------
-  function seekBy(seconds) {
-    const video = currentVideo();
-    if (!video || !isFinite(video.duration)) return;
-    const target = Math.min(Math.max(0, video.currentTime + seconds), video.duration);
-    video.currentTime = target;
-    toast(`${seconds > 0 ? "+" : "-"}${Math.abs(seconds)}s`);
-  }
+  // SEEKING IS NOT BOUND, AND THIS IS THE RECORD OF WHY.
+  //
+  // `j` and `l` used to jump thirty seconds with `video.currentTime += n`. On an
+  // ordinary <video> that is correct. Netflix is not an ordinary video: it is
+  // Widevine-protected and fed through Media Source Extensions, so Netflix's
+  // player — not the browser — owns the buffer and decides what data exists at
+  // what timestamp. Writing currentTime moves the element somewhere its player
+  // never agreed to and has no data for, and the pipeline fails.
+  //
+  // Measured live, not guessed: a clean twenty-second control period with the
+  // stream untouched (healthy, advanced exactly 20.0s), then one seek. The
+  // video element was gone inside 700ms and the page became Netflix error
+  // M7375. Reproduced twice in three attempts. Not recoverable without a reload.
+  //
+  // The obvious repair was to hand the seek to Netflix instead, by dispatching
+  // its own arrow keys — it seeks ten seconds per press. That was tried and
+  // measured too: playback survived, and Netflix moved by 0.0s. It ignores
+  // untrusted keyboard events. Safe, and completely inert.
+  //
+  // That leaves no route. Clicking the scrubber would mean computing a pixel
+  // position on a control bar Netflix unmounts when it hides, which is a worse
+  // bargain than not having the feature. So the keys are gone rather than dead:
+  // this file already refused to bind previous-episode on the grounds that a
+  // silently dead key is worse than none, and the same rule decides this.
+  //
+  // If it is ever revisited, the thing to find is a seek Netflix's own player
+  // performs. Do not reintroduce a currentTime write; it breaks playback.
 
   const NEXT_EPISODE = [
     '[data-uia*="next-episode-seamless" i]',
@@ -497,16 +518,6 @@
     if (!settings.playerShortcuts) return;
 
     switch (key.toLowerCase()) {
-      case "j":
-        event.preventDefault();
-        event.stopPropagation();
-        seekBy(-30);
-        return;
-      case "l":
-        event.preventDefault();
-        event.stopPropagation();
-        seekBy(30);
-        return;
       case "n":
         event.preventDefault();
         event.stopPropagation();
