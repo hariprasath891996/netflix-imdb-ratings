@@ -18,22 +18,22 @@ the same thing.
 | 1 | IMDb rating on every card, colour-coded | ✓ | Watched 28 render, correct tiers and corner |
 | 2 | Ratings from IMDb's dataset — no server, key or account | ✓ | 1,712,379 titles imported on a real machine |
 | 3 | `basics` imported, monthly cadence | ✓ | 787,184 titles imported |
-| 4 | Local title index — most titles resolve with no network call | ~ | Resolution demonstrably works; the local-vs-network split is unobserved |
+| 4 | Local title index — most titles resolve with no network call | ~ | Resolution works; the local-vs-network split is unobserved |
 | 5 | Daily conditional refresh (a 304 skips the import) | — | |
-| 6 | Alias resolution — "Laapataa Ladies" → "Lost Ladies" | ~ | Diagnostic resolves correctly; not seen on a card |
+| 6 | Alias resolution — "Laapataa Ladies" → "Lost Ladies" | ✓ | Seen on a live badge tooltip |
 | 7 | Title normalisation — curly quotes, "(U.S.)", "(2011)" | — | |
 | 8 | Adjustable colour bands, dragged on a 0–10 scale | — | Rendered in a harness only |
-| 9 | Dim what I'd skip, by rating | — | |
-| 10 | Dim by runtime, kind and genre | — | Runtime is films-only; nothing dims on missing data |
+| 9 | Dim what I'd skip, by rating | ✓ | 10 of 14 cards dimmed on a live homepage |
+| 10 | Dim by runtime, kind and genre | ~ | Type, runtime and genres confirmed stamped on every badge; the rules themselves unobserved |
 | 11 | Correct a wrong match | — | |
-| 12 | Thin-evidence marker — dashed under 1,000 votes | — | |
-| 13 | Under-seen gem halo | — | |
-| 14 | Best-in-row marker | — | |
+| 12 | Thin-evidence marker — dashed under 1,000 votes | ✓ | Two found on a live page |
+| 13 | Under-seen gem halo | — | None qualified on the page tested; band is narrow by design |
+| 14 | Best-in-row marker | ~ | **Was broken** — the dim filter silently disabled it. Fixed; the fix is unobserved |
 | 15 | Series-vs-film disambiguation | ~ | Diagnostic reports the type; the hint path is unobserved |
 | 16 | Sort a grid by IMDb rating | — | **The one feature that can break the page** — see risks |
 | 17 | Netflix: rows, search, My List, genre grids | ~ | Badges seen on rows; grids unobserved |
 | 18 | Prime Video | ~ | Placement checked against the live site with the real stylesheet; the extension itself unobserved there |
-| 19 | Per-platform badge corner | ~ | Both corners measured live, by injection rather than by the extension |
+| 19 | Per-platform badge corner | ✓ | All 14 live badges carry the Netflix corner |
 | 20 | Rating restated inside the hover preview | ✗ | **Never once reachable** — see risks |
 | 21 | Is it finished, or still running | ✗ | Same surface as #20, so the same problem |
 
@@ -50,7 +50,7 @@ the same thing.
 | 28 | Filter settings UI with an active-filter summary | ~ | Rendered in a harness |
 | 29 | Settings page — cards, control states, AA contrast | ~ | |
 | 30 | Preview harness (`preview.html`) | ✓ | |
-| 31 | Modifier-click a badge to open IMDb | — | |
+| 31 | Modifier-click a badge to open IMDb | ✓ | Every badge linkable; the tooltip names the chord |
 | 32 | Shift+B hides all badges | — | |
 
 ## Pending — core
