@@ -222,7 +222,7 @@
     .state[data-ok="no"]   .dot { background: var(--red); }
 
     /* One row per imported file. Same dot vocabulary as .state above, keyed
-       off the row's own state so the three files can disagree. */
+       off the row's own state so the two files can disagree. */
     .dsets {
       display: flex; flex-direction: column;
       background: var(--sunken); border: 1px solid var(--line);
@@ -823,9 +823,9 @@
             </button>
           </h3>
           <div class="card-body" id="p-data" hidden>
-            <p class="hint">Three files, downloaded to this machine. Ratings power the
-              badges; metadata and episodes power season strips, filters, and
-              finished&nbsp;/&nbsp;still&nbsp;running.</p>
+            <p class="hint">Two files, downloaded to this machine. Ratings power the
+              badges; metadata powers the filters, the year matching and whether
+              a series has finished&nbsp;/&nbsp;is&nbsp;still&nbsp;running.</p>
             <div class="dsets" id="dsets"></div>
             <div class="row">
               <button id="refresh" type="button" class="btn primary">Refresh ratings</button>

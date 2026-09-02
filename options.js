@@ -75,7 +75,7 @@ function isOwnEcho(key, value) {
 // --- ratings dataset ------------------------------------------------------
 const refreshButton = document.getElementById("refresh");
 
-// The worker imports three files, not one, and two of them are what make the
+// The worker imports two files, not one, and the second is what makes the
 // the filters and finished/running work at all. Reporting only
 // ratings meant a failed or unfinished basics import looked like nothing was
 // wrong, while every feature that depends on it silently did nothing.
@@ -1536,7 +1536,7 @@ function paintCardValues() {
   setCardValue("filters", text, active.length ? "yes" : "no");
 }
 
-// Whether the three files are in place is the one thing worth reopening a card
+// Whether both files are in place is the one thing worth reopening a card
 // the user closed — but only once per page load, or it could never be closed.
 let dataNudged = false;
 
