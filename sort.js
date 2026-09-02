@@ -229,11 +229,36 @@
     for (const child of node.children) {
       if (!child.querySelector(TILE)) continue;
       if (!child.children.length) return null;
-      for (const cell of child.children) {
+
+      // A row may wrap its cells before laying them out, and measurement says
+      // it does: on a live My List the shape is
+      //
+      //   .galleryLockups > .rowContainer > (one wrapper) > cell > tile
+      //
+      // so reading `.rowContainer`'s direct children finds a single element
+      // holding six tiles, the cell test sees 6 instead of 1, and the whole
+      // grid is declined. The sort control then never appears, which is exactly
+      // what was observed: 17 tiles on screen and no way to order them.
+      //
+      // This is the same descent the lowest-common-ancestor walk above already
+      // performs, for the same reason — a wrapper with one child is not a level
+      // of the grid, it is padding — so it is applied per row as well. The
+      // condition stays strict: descend only while the single child still holds
+      // every tile the row holds, so a wrapper that drops one is not followed.
+      let holder = child;
+      const inRow = holder.querySelectorAll(TILE).length;
+      while (
+        holder.children.length === 1 &&
+        holder.firstElementChild.querySelectorAll(TILE).length === inRow
+      ) {
+        holder = holder.firstElementChild;
+      }
+
+      for (const cell of holder.children) {
         if (countTiles(cell) !== 1) return null;
       }
-      rows.push(child);
-      cells += child.children.length;
+      rows.push(holder);
+      cells += holder.children.length;
     }
 
     // One row is not a bucketed grid, it is a flat container one level down —
