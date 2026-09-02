@@ -595,7 +595,8 @@ function markBestInRow(row) {
 
   let top = Infinity;
   let bottom = -Infinity;
-  let candidates = 0;
+  let candidates = 0; // eligible to win
+  let rated = 0;      // available to compare
   let best = null;
   let bestValue = -Infinity;
 
@@ -612,6 +613,14 @@ function markBestInRow(row) {
     bottom = Math.max(bottom, box.top);
 
     // A dashed badge is as likely to be a wrong match as a discovery, and
+    // Counted before the exclusions, because the minimum below asks how many
+    // ratings there are to compare — not how many are allowed to win. Counting
+    // after meant that switching the dim filter on removed most of a row from
+    // the tally and silently turned this feature off: measured on a real
+    // homepage, rows of seven rated cards were left with one or two eligible
+    // and never reached a minimum of three.
+    rated++;
+
     // crowning a row with one would put the extension's loudest mark on its
     // least reliable number.
     if (badge.dataset.confidence === "low") continue;
@@ -644,7 +653,7 @@ function markBestInRow(row) {
   // is where they have already said "worth it" — a row topping out at 5.9 gets
   // no mark, and someone who runs a strict threshold gets marks on fewer rows
   // rather than the same marks with a different meaning.
-  if (candidates < ROW_BEST_MIN_RATED || bestValue < thresholds.tierHigh) best = null;
+  if (rated < ROW_BEST_MIN_RATED || !candidates || bestValue < thresholds.tierHigh) best = null;
 
   for (const badge of badges) {
     if (badge === best) {
