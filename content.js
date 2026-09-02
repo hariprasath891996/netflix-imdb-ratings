@@ -908,6 +908,28 @@ function titleFromModal(meta) {
   const modal = meta.closest('[class*="previewModal"]');
   if (!modal) return null;
 
+  // A hover preview holds exactly one metadata row, and one hero image that is
+  // unambiguously that row's subject. A /title/ page is ALSO rendered inside a
+  // previewModal — the container is the whole page there — but it holds one
+  // metadata row per episode, and "the modal's first image" is the same answer
+  // for every one of them.
+  //
+  // That is the 25-identical-chips incident, and it is worth being exact about
+  // what the earlier fix did: removing the `|| document` fallback did NOT fix
+  // it. It only changed which wrong image all the rows agreed on, from the
+  // page's first to the modal's first. On a detail page those are the same
+  // element, so the bug survived the fix that was written for it and was seen
+  // live again afterwards, reading "IMDb 3.7 - 24 votes - Episode 12" on
+  // twenty-five unrelated rows.
+  //
+  // Counting the rows is what actually separates the two surfaces, because it
+  // asks the question the bug is about: is this image this row's subject, or
+  // is it merely the first one in a container that holds many subjects? One
+  // row means the answer cannot be shared. More than one means it would be.
+  // The hero of a detail page is handled by the detail path below, which takes
+  // its name from document metadata and never from an element in the body.
+  if (MODAL_META && modal.querySelectorAll(MODAL_META).length > 1) return null;
+
   const image = modal.querySelector("img[alt]");
   return image && image.alt.trim() ? clean(image.alt) : null;
 }
@@ -1039,8 +1061,10 @@ async function processModal(meta) {
 // --- the detail page ------------------------------------------------------
 // /title/<id> is where someone actually decides whether to watch, and it was
 // the one surface saying nothing: the row badges live on browse, and the chip
-// declines here by design (see titleFromModal above). This puts one rating back
-// on it.
+// declines here (see the row-count guard in titleFromModal above — which was
+// added only after this page was seen carrying 25 identical chips, so treat
+// that guard as load-bearing rather than decorative). This puts one rating
+// back on it.
 //
 // THE RULE THAT MUST NOT COME BACK, and the reason this file will not tolerate
 // a "simplification" here. The 25-identical-chips incident was not caused by

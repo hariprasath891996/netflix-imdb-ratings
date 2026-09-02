@@ -42,7 +42,7 @@ the same thing.
 | 20 | Rating restated inside the hover preview | ✗ | **Never once reachable** — see risks |
 | 21 | Is it finished, or still running | ✗ | Same surface as #20, so the same problem |
 | 33 | Year disambiguation | — | An unrated exact-year match now beats a rated far-year one, so a badge can become an honest "no rating" where it used to show a confident wrong number. Film tolerance is tighter than series |
-| 34 | Preview-panel features made reachable | — | The chip's wrong-rating bug is fixed and run status moved onto the badge. **This was the worst bug the project has produced**: 25 identical chips on a detail page, each stamping one film's rating onto unrelated titles |
+| 34 | Preview-panel features made reachable | ~ | **The first fix did not work, and was reported here as working.** Removing the `|| document` fallback only changed which wrong image every row agreed on — on a /title/ page Netflix renders the whole page inside a `previewModal`, so the modal's first image is the page's first image. Seen live afterwards: 25 chips reading "IMDb 3.7 · 24 votes · Episode 12". The real fix counts metadata rows in the modal — one row means the image cannot be shared, more than one means it would be. Verified against the live DOM: 25 rows decline, the hero declines for want of an image, and the rating comes from the detail path instead |
 
 ## Shipped — good to have
 
